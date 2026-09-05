@@ -8,7 +8,13 @@ import {
 import { detectAll, detectApp, launchCommand, splitCdPrefix, type Detection } from "./detect.js";
 import { PREVIEW_CHANGED, type InspectResult } from "./contract.js";
 import { isSafeRelativeCwd } from "./paths.js";
-import { decodeTerminalChunks, parseReadyHint, shareUrlForPort, tailText } from "./ready.js";
+import { decodeTerminalChunks, parseReadyHint, tailText } from "./ready.js";
+import {
+  exposeConnectShare,
+  isConnectShareUrl,
+  resolvePreviewShareUrl,
+  unexposeConnectShare,
+} from "./share-port.js";
 import { collectSnapshots } from "./snapshot.js";
 import {
   detectionFromRow,
@@ -295,6 +301,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       }
     }
     await closePreviewBrowser(row);
+    await releaseShare(row);
     row.status = "idle";
     row.terminalId = null;
     row.localUrl = null;
@@ -323,12 +330,26 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
   }
 
   async function tryShareUrl(hostId: string, port: number): Promise<string | null> {
+    const url = await resolvePreviewShareUrl(
+      hostId,
+      port,
+      (id) => bb.hosts.ensureSharedPortTunnel(id),
+      async (id, sharePort) => exposeConnectShare(id, sharePort),
+    );
+    if (url === null) {
+      bb.log.warn(`shared port unavailable for ${hostId}:${port}`);
+    }
+    return url;
+  }
+
+  async function releaseShare(row: PreviewRow): Promise<void> {
+    if (row.port === null || row.shareUrl === null || !isConnectShareUrl(row.shareUrl)) {
+      return;
+    }
     try {
-      const tunnel = await bb.hosts.ensureSharedPortTunnel(hostId);
-      return shareUrlForPort(tunnel, port);
+      await unexposeConnectShare(row.hostId, row.port);
     } catch (cause) {
-      bb.log.warn(`shared port tunnel unavailable: ${asErrorMessage(cause)}`);
-      return null;
+      bb.log.warn(`could not unexpose preview port ${row.port}: ${asErrorMessage(cause)}`);
     }
   }
 
@@ -367,6 +388,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       if (session.status === "exited" || session.status === "disconnected") {
         row.status = "exited";
         await closePreviewBrowser(row);
+        await releaseShare(row);
         row.localUrl = null;
         row.shareUrl = null;
         const reason =
@@ -587,6 +609,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
           };
         }
         await closePreviewBrowser(row);
+        await releaseShare(row);
         row.status = "idle";
         row.terminalId = null;
         row.localUrl = null;
