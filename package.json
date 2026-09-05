@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-app-preview",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
   },
   "bb": {
     "name": "App Preview",
-    "description": "Detect the app in a thread worktree, launch it, and open it in BB's in-app browser.",
+    "description": "Detect the app in a thread worktree, launch it, open it in BB's in-app browser, and close that browser when the preview stops.",
     "branding": {
       "icon": "Play"
     },

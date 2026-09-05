@@ -31,6 +31,7 @@ function usePreview(threadId: string) {
   const sawConnected = useRef(false);
 
   const load = useCallback(async () => {
+    if (threadId === "") return;
     try {
       const result = await rpc.call("inspect", { threadId });
       if (isInspect(result)) {

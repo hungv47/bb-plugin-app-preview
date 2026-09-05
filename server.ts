@@ -229,7 +229,7 @@ export default async function plugin(bb: BbPluginApi) {
     description:
       "Detect, start, stop, or inspect the web app in this thread's worktree so the user can try it from the session.",
     instructions:
-      "Use preview_app to run the worktree app from this session. Prefer it over guessing package.json scripts. After start, give the user the Open URL.",
+      "Use preview_app to run the worktree app from this session. Prefer it over guessing package.json scripts. After start, the in-app browser opens on its own. Give the user the Open URL. Stop closes that browser.",
     presentation: {
       label: {
         pending: "Checking worktree preview",

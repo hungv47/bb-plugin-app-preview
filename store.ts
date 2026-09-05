@@ -23,6 +23,7 @@ export type PreviewRow = {
   detectedJson: string;
   startedAt: number | null;
   updatedAt: number;
+  browserTabId: string | null;
 };
 
 const ACTIVE: PreviewStatus[] = ["starting", "running", "stopping"];
@@ -49,9 +50,14 @@ export function migratePreviews(db: Database): void {
       log_tail TEXT NOT NULL DEFAULT '',
       detected_json TEXT NOT NULL DEFAULT '{}',
       started_at INTEGER,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      browser_tab_id TEXT
     )
   `);
+  const columns = db.prepare(`PRAGMA table_info(previews)`).all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "browser_tab_id")) {
+    db.exec(`ALTER TABLE previews ADD COLUMN browser_tab_id TEXT`);
+  }
 }
 
 function asInt(value: unknown): number | null {
@@ -99,6 +105,10 @@ function fromRow(row: Record<string, unknown>): PreviewRow {
     detectedJson: typeof row.detected_json === "string" ? row.detected_json : "{}",
     startedAt,
     updatedAt,
+    browserTabId:
+      row.browser_tab_id === null || row.browser_tab_id === undefined
+        ? null
+        : String(row.browser_tab_id),
   };
 }
 
@@ -129,11 +139,13 @@ export function upsertPreview(db: Database, row: PreviewRow): void {
     INSERT INTO previews (
       environment_id, thread_id, host_id, workspace_path, branch, relative_cwd,
       framework, framework_label, package_manager, command, port, terminal_id,
-      local_url, share_url, status, error, log_tail, detected_json, started_at, updated_at
+      local_url, share_url, status, error, log_tail, detected_json, started_at, updated_at,
+      browser_tab_id
     ) VALUES (
       @environmentId, @threadId, @hostId, @workspacePath, @branch, @relativeCwd,
       @framework, @frameworkLabel, @packageManager, @command, @port, @terminalId,
-      @localUrl, @shareUrl, @status, @error, @logTail, @detectedJson, @startedAt, @updatedAt
+      @localUrl, @shareUrl, @status, @error, @logTail, @detectedJson, @startedAt, @updatedAt,
+      @browserTabId
     )
     ON CONFLICT(environment_id) DO UPDATE SET
       thread_id = excluded.thread_id,
@@ -154,7 +166,8 @@ export function upsertPreview(db: Database, row: PreviewRow): void {
       log_tail = excluded.log_tail,
       detected_json = excluded.detected_json,
       started_at = excluded.started_at,
-      updated_at = excluded.updated_at
+      updated_at = excluded.updated_at,
+      browser_tab_id = excluded.browser_tab_id
   `,
   ).run(row);
 }

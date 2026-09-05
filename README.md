@@ -1,6 +1,6 @@
 # App Preview
 
-BB plugin that finds the app in the current thread's worktree, starts it in a thread terminal, and opens it in BB's in-app browser.
+BB plugin that finds the app in the current thread's worktree, starts it in a thread terminal, and opens it in BB's in-app browser. Stop closes that browser. No extra click.
 
 Path: **Preview** in the thread side panel, the play control in the thread header, or **Preview app** in the command palette. Agents use `bb preview` or the `preview_app` tool.
 
@@ -9,7 +9,7 @@ In a monorepo it lists every startable app it finds. Pick one. Start/Stop/Restar
 ## Install
 
 ```
-bb plugin install git:github.com/hungv47/bb-plugin-app-preview@semver:^0.1.0
+bb plugin install git:github.com/hungv47/bb-plugin-app-preview@semver:^0.2.0
 ```
 
 From a local checkout:

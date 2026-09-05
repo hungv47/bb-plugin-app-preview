@@ -10,6 +10,11 @@ describe("parseReadyHint", () => {
     expect(hint).toEqual({ localUrl: "http://localhost:5173/", port: 5173 });
   });
 
+  it("rewrites python http.server IPv6 any-address", () => {
+    const hint = parseReadyHint("Serving HTTP on :: port 18765 (http://[::]:18765/) ...", 18765);
+    expect(hint).toEqual({ localUrl: "http://127.0.0.1:18765/", port: 18765 });
+  });
+
   it("rewrites 0.0.0.0 to loopback", () => {
     const hint = parseReadyHint("Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)", 8000);
     expect(hint?.localUrl).toBe("http://127.0.0.1:8000");

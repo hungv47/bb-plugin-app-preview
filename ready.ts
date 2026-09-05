@@ -14,7 +14,7 @@ export function decodeTerminalChunks(
 }
 
 const URL_RE =
-  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|[a-zA-Z0-9.-]+)(?::(\d{2,5}))?(?:\/[^\s"'<>]*)?/gi;
+  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[a-zA-Z0-9.-]+)(?::(\d{2,5}))?(?:\/[^\s"'<>]*)?/gi;
 
 export type ReadyHint = {
   localUrl: string;
@@ -26,7 +26,7 @@ function rewriteLoopback(raw: string): string {
     .replace(/^https?:\/\/0\.0\.0\.0/i, (match) =>
       match.toLowerCase().startsWith("https") ? "https://127.0.0.1" : "http://127.0.0.1",
     )
-    .replace(/^https?:\/\/\[::1\]/i, (match) =>
+    .replace(/^https?:\/\/\[::1?\]/i, (match) =>
       match.toLowerCase().startsWith("https") ? "https://127.0.0.1" : "http://127.0.0.1",
     );
 }
@@ -39,7 +39,9 @@ function isLoopbackUrl(raw: string): boolean {
       host === "127.0.0.1" ||
       host === "0.0.0.0" ||
       host === "[::1]" ||
-      host === "::1"
+      host === "::1" ||
+      host === "[::]" ||
+      host === "::"
     );
   } catch {
     return false;
@@ -48,7 +50,7 @@ function isLoopbackUrl(raw: string): boolean {
 
 function rankUrl(url: string): number {
   if (/localhost|127\.0\.0\.1/i.test(url)) return 3;
-  if (/0\.0\.0\.0|\[::1\]/i.test(url)) return 2;
+  if (/0\.0\.0\.0|\[::1?\]/i.test(url)) return 2;
   return 0;
 }
 
@@ -74,9 +76,9 @@ export function parseReadyHint(logText: string, fallbackPort: number | null): Re
   }
   if (fallbackPort !== null) {
     const readyish =
-      /\b(ready|listening|local:|running at)\b/i.test(text) &&
+      /\b(ready|listening|local:|running at|serving http)\b/i.test(text) &&
       new RegExp(
-        `(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::1\\]|port)\\D{0,12}${fallbackPort}\\b`,
+        `(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::1?\\]|port)\\D{0,12}${fallbackPort}\\b`,
         "i",
       ).test(text);
     if (readyish) {

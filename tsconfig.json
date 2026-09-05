@@ -30,6 +30,7 @@
     "snapshot.ts",
     "store.ts",
     "service.ts",
+    "browser-tabs.ts",
     "rpc-input.ts",
     "components",
     "lib",

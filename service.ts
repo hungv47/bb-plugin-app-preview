@@ -1,4 +1,10 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import {
+  closeThreadBrowser,
+  openThreadBrowser,
+  previewUrls,
+  type ThreadTabsApi,
+} from "./browser-tabs.js";
 import { detectAll, detectApp, launchCommand, splitCdPrefix, type Detection } from "./detect.js";
 import { PREVIEW_CHANGED, type InspectResult } from "./contract.js";
 import { isSafeRelativeCwd } from "./paths.js";
@@ -108,7 +114,65 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
   migratePreviews(db);
   const knownHosts = new Set<string>();
   const threadEnvironments = new Map<string, string>();
+  const openedUrls = new Map<string, string>();
   const enqueue = createQueue();
+  const tabsApi = bb.sdk.threads.tabs as ThreadTabsApi;
+
+  function browserTitle(row: PreviewRow): string {
+    return `Preview · ${row.frameworkLabel ?? "app"}`;
+  }
+
+  async function openPreviewBrowser(row: PreviewRow): Promise<void> {
+    const url = openUrlFor(row);
+    if (url === null) return;
+    try {
+      const tabId = await openThreadBrowser(tabsApi, {
+        threadId: row.threadId,
+        tabId: row.browserTabId,
+        url,
+        title: browserTitle(row),
+        environmentId: row.environmentId,
+      });
+      if (tabId !== null) {
+        row.browserTabId = tabId;
+        openedUrls.set(row.environmentId, url);
+      }
+    } catch (cause) {
+      bb.log.warn(`could not open in-app browser: ${asErrorMessage(cause)}`);
+    }
+  }
+
+  async function closePreviewBrowser(row: PreviewRow): Promise<void> {
+    if (row.browserTabId === null && row.localUrl === null && row.shareUrl === null) {
+      openedUrls.delete(row.environmentId);
+      return;
+    }
+    try {
+      await closeThreadBrowser(tabsApi, {
+        threadId: row.threadId,
+        tabId: row.browserTabId,
+        urls: previewUrls({
+          localUrl: row.localUrl,
+          shareUrl: row.shareUrl,
+          openUrl: openUrlFor(row),
+        }),
+      });
+    } catch (cause) {
+      bb.log.warn(`could not close in-app browser: ${asErrorMessage(cause)}`);
+    }
+    row.browserTabId = null;
+    openedUrls.delete(row.environmentId);
+  }
+
+  async function syncPreviewBrowser(row: PreviewRow): Promise<void> {
+    const url = openUrlFor(row);
+    if (url === null) {
+      await closePreviewBrowser(row);
+      return;
+    }
+    if (openedUrls.get(row.environmentId) === url && row.browserTabId !== null) return;
+    await openPreviewBrowser(row);
+  }
 
   function publish(environmentId: string): void {
     bb.realtime.publish(PREVIEW_CHANGED, { environmentId });
@@ -236,6 +300,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       }
       if (session.status === "exited" || session.status === "disconnected") {
         row.status = "exited";
+        await closePreviewBrowser(row);
         row.localUrl = null;
         row.shareUrl = null;
         const reason =
@@ -311,6 +376,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         let row = getPreview(db, workspace.environmentId);
         if (row !== null && row.terminalId !== null) {
           row = await refreshLogs(row);
+          await syncPreviewBrowser(row);
           save(row);
           reconcileDeclaredPorts();
         }
@@ -345,6 +411,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
           existing.terminalId !== null
         ) {
           const refreshed = await refreshLogs(existing);
+          await syncPreviewBrowser(refreshed);
           save(refreshed);
           const detected = await detectWorkspace(workspace);
           const detection = detectionFromRow(refreshed) ?? detected.detection;
@@ -397,10 +464,13 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
           detectedJson: JSON.stringify(detection),
           startedAt,
           updatedAt: startedAt,
+          browserTabId: null,
         };
         save(row);
         reconcileDeclaredPorts();
         const settled = await waitForPreview(row);
+        await syncPreviewBrowser(settled);
+        save(settled);
         return {
           workspace: publicWorkspace(workspace),
           detection,
@@ -448,6 +518,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
             error: row.error,
           };
         }
+        await closePreviewBrowser(row);
         row.status = "idle";
         row.terminalId = null;
         row.localUrl = null;
@@ -493,6 +564,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         }
         knownHosts.add(current.hostId);
         const next = await refreshLogs(current);
+        await syncPreviewBrowser(next);
         save(next);
       });
     }
