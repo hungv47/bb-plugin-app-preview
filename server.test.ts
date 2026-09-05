@@ -296,6 +296,123 @@ describe("plugin inspect", () => {
     await harness.lifecycle.dispose();
   });
 
+  it("leaves the in-app browser alone when auto-open is off", async () => {
+    const tabs: Array<{ id: string; kind: string; url?: string }> = [{ id: "new", kind: "new-tab" }];
+    let revision = 1;
+    let tabUpdates = 0;
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "app-preview",
+      settings: { autoOpenBrowser: false },
+      sdk: {
+        threads: {
+          get: async () =>
+            makeThreadResponse({
+              id: "thr_1",
+              environmentId: "env_1",
+              projectId: "proj_1",
+            }),
+          tabs: {
+            get: async () => ({ revision, tabs: [...tabs] }),
+            update: async (args: {
+              expectedRevision: number;
+              tabs: Array<{ id: string; kind: string; url?: string }>;
+            }) => {
+              tabUpdates += 1;
+              revision = args.expectedRevision + 1;
+              tabs.splice(0, tabs.length, ...args.tabs);
+              return { revision, tabs: [...tabs] };
+            },
+          },
+        },
+        environments: {
+          get: async () => environment(),
+        },
+        hosts: {
+          directory: async () => ({
+            directory: "/repo",
+            parent: null,
+            entries: [
+              { name: "package.json", kind: "file" as const, path: "/repo/package.json" },
+            ],
+          }),
+          pathsExist: async ({ paths }: { paths: string[] }) => ({
+            existence: Object.fromEntries(
+              paths.map((path) => [path, path.endsWith("package.json")]),
+            ),
+          }),
+        },
+        files: {
+          read: async () => ({
+            content: JSON.stringify({
+              scripts: { dev: "vite" },
+              devDependencies: { vite: "6.0.0" },
+            }),
+            contentEncoding: "utf8" as const,
+            path: "/repo/package.json",
+            sha256: "abc",
+            sizeBytes: 42,
+          }),
+        },
+        terminals: {
+          create: async () => ({
+            closeReason: null,
+            cols: 120,
+            createdAt: 1,
+            environmentId: "env_1",
+            exitCode: null,
+            hostId: "host_1",
+            id: "term_1",
+            initialCwd: "/repo",
+            lastUserInputAt: null,
+            rows: 32,
+            status: "running" as const,
+            threadId: "thr_1",
+            title: "Preview",
+            updatedAt: 1,
+          }),
+          get: async () => ({
+            closeReason: null,
+            cols: 120,
+            createdAt: 1,
+            environmentId: "env_1",
+            exitCode: null,
+            hostId: "host_1",
+            id: "term_1",
+            initialCwd: "/repo",
+            lastUserInputAt: null,
+            rows: 32,
+            status: "running" as const,
+            threadId: "thr_1",
+            title: "Preview",
+            updatedAt: 1,
+          }),
+          output: async () => ({
+            chunks: [
+              {
+                dataBase64: Buffer.from("  ➜  Local:   http://localhost:5173/\n").toString(
+                  "base64",
+                ),
+              },
+            ],
+            nextSeq: 1,
+            truncated: false,
+          }),
+          close: async () => {},
+        },
+      },
+    });
+    await plugin(bb);
+    const started = await harness.behavior.callRpc("start", { threadId: "thr_1" });
+    expect(started.preview.status).toBe("running");
+    expect(started.preview.openUrl).toBe("http://localhost:5173/");
+    expect(tabUpdates).toBe(0);
+    expect(tabs.some((tab) => tab.kind === "browser")).toBe(false);
+    const stopped = await harness.behavior.callRpc("stop", { threadId: "thr_1" });
+    expect(stopped.preview.status).toBe("idle");
+    expect(tabUpdates).toBe(0);
+    await harness.lifecycle.dispose();
+  });
+
   it("explains a retiring worktree instead of starting it", async () => {
     let created = false;
     const { bb, harness } = createFakePluginHost({

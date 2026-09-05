@@ -113,6 +113,13 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Install dependencies before start",
       default: true,
     },
+    autoOpenBrowser: {
+      type: "boolean",
+      label: "Automatically open and close the in-app browser",
+      description:
+        "When off, start does not open a browser tab and stop does not close one. Use Open in browser yourself.",
+      default: true,
+    },
     readyTimeoutSeconds: {
       type: "string",
       label: "Seconds to wait for a ready URL",
@@ -123,11 +130,13 @@ export default async function plugin(bb: BbPluginApi) {
   const serviceSettings = {
     autoInstall: values.autoInstall,
     readyTimeoutMs: parseTimeoutMs(values.readyTimeoutSeconds),
+    autoOpenBrowser: values.autoOpenBrowser,
   };
   const service = createPreviewService(bb, serviceSettings);
   settings.onChange((next) => {
     serviceSettings.autoInstall = next.autoInstall;
     serviceSettings.readyTimeoutMs = parseTimeoutMs(next.readyTimeoutSeconds);
+    serviceSettings.autoOpenBrowser = next.autoOpenBrowser;
   });
 
   bb.rpc.register(rpcContract, {
@@ -233,7 +242,7 @@ export default async function plugin(bb: BbPluginApi) {
     description:
       "Detect, start, stop, or inspect the web app in this thread's worktree so the user can try it from the session.",
     instructions:
-      "Use preview_app to run the worktree app from this session. Prefer it over guessing package.json scripts. After start, the in-app browser opens on its own. Give the user the Open URL. Stop closes that browser.",
+      "Use preview_app to run the worktree app from this session. Prefer it over guessing package.json scripts. After start, the in-app browser opens on its own unless the user turned that setting off. Give the user the Open URL. Stop closes that browser when auto-open is on.",
     presentation: {
       label: {
         pending: "Checking worktree preview",

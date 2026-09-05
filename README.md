@@ -36,6 +36,7 @@ Add `--json` when a later step needs the structured result. Pass `--thread <id>`
 ## Settings
 
 - **Install dependencies before start** (default on)
+- **Automatically open and close the in-app browser** (default on). When off, start does not open a tab and stop does not close one. Use **Open in browser**.
 - **Seconds to wait for a ready URL** (default 90)
 
 `bb plugin config app-preview`

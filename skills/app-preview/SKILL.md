@@ -5,7 +5,7 @@ description: Detect, start, stop, and open the app in the current BB thread work
 
 # App preview
 
-This plugin runs the worktree (or branch checkout) attached to the current thread. It detects the framework and start command, launches the app in a BB terminal, and opens the ready URL in BB's in-app browser. Stop closes that browser.
+This plugin runs the worktree (or branch checkout) attached to the current thread. It detects the framework and start command, launches the app in a BB terminal, and by default opens the ready URL in BB's in-app browser. Stop closes that browser. Users can turn auto-open off under plugin settings and use Open in browser themselves.
 
 Prefer `bb preview` over guessing `package.json` scripts.
 
@@ -14,8 +14,8 @@ Prefer `bb preview` over guessing `package.json` scripts.
 | Command | Effect |
 | --- | --- |
 | `bb preview detect` | Identify framework, package manager, start command, and port |
-| `bb preview start` | Launch in a thread terminal and open the in-app browser when ready |
-| `bb preview stop` | Stop that worktree's preview process and close its in-app browser |
+| `bb preview start` | Launch in a thread terminal and open the in-app browser when ready (unless auto-open is off) |
+| `bb preview stop` | Stop that worktree's preview process and close its in-app browser (unless auto-open is off) |
 | `bb preview restart` | Stop, then start again |
 | `bb preview status` | Detection plus running/stopped state and URLs |
 
@@ -31,7 +31,7 @@ The native tool `preview_app` is the same actions (`detect`, `start`, `stop`, `r
 2. If several apps are listed, start the one the user wants with `--cwd`.
 3. If detection found an app, `bb preview start`. If it did not, ask before inventing a command, or pass `--command`.
 4. Give the user the `Open:` URL as a markdown link. That URL is a bb connect share when pairing is available, so it works from hung.getbb.app. Do not paste a localhost URL as the thing they should click while they are remote.
-5. The in-app browser opens when the server is ready. Stop closes it. The Preview side panel can still restart or re-open if they closed the tab.
+5. By default the in-app browser opens when the server is ready and stop closes it. If auto-open is off, give them the Open URL and let them use the Preview panel.
 6. Stop the preview when they are done testing, unless they asked to leave it up.
 
 ## Rules

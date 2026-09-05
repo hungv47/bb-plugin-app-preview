@@ -36,6 +36,7 @@ export type { InspectResult };
 export type ServiceSettings = {
   autoInstall: boolean;
   readyTimeoutMs: number;
+  autoOpenBrowser: boolean;
 };
 
 type WorkspaceInfo = {
@@ -137,6 +138,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
   }
 
   async function openPreviewBrowser(row: PreviewRow): Promise<void> {
+    if (!settings.autoOpenBrowser) return;
     const url = openUrlFor(row);
     if (url === null) return;
     try {
@@ -157,6 +159,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
   }
 
   async function closePreviewBrowser(row: PreviewRow): Promise<void> {
+    if (!settings.autoOpenBrowser) return;
     if (row.browserTabId === null && row.localUrl === null && row.shareUrl === null) {
       openedUrls.delete(row.environmentId);
       return;
