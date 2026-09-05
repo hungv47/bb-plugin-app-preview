@@ -2,6 +2,8 @@
 
 BB plugin that finds the app in the current thread's worktree, starts it in a thread terminal, and opens it in BB's in-app browser. Stop closes that browser. No extra click.
 
+![Starting a worktree app from the Preview panel](demo.gif)
+
 **Ports** in the sidebar lists listening TCP ports on this machine and can kill a listener. Dev servers show by default; Show all includes system apps. Share gives a bb connect URL for phone/remote preview. Unshare removes it. Share and kill refuse Docker-published ports and system apps.
 
 Path: **Preview** in the thread side panel, the play control in the thread header, or **Preview app** in the command palette. Agents use `bb preview` or the `preview_app` / `preview_ports` tools.
