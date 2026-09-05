@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UrlLink, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
+import type { PreviewRpc } from "./contract";
 import {
   killPortsResultSchema,
   listPortsResultSchema,
-  rpcContract,
   sharePortResultSchema,
   type ListeningPortDto,
-} from "./contract";
+} from "./ports-schema";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ function metaLine(row: ListeningPortDto): string {
 }
 
 export function PortsPanel() {
-  const rpc = useRpc<typeof rpcContract>();
+  const rpc = useRpc<PreviewRpc>();
   const connection = useRealtimeConnectionState();
   const [showAll, setShowAll] = useState(false);
   const [ports, setPorts] = useState<ListeningPortDto[]>([]);
