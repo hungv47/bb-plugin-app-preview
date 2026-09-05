@@ -38,13 +38,20 @@ describe("parseKillTokens", () => {
     expect(parseKillTokens(["1-1000"])).toHaveLength(1000);
     expect(parseKillTokens(["nope"])[0]).toMatchObject({ kind: "error" });
   });
+
+  it("caps the total expanded ports, not only one range", () => {
+    const tokens = parseKillTokens(["1-500", "501-1001"]);
+    expect(tokens.filter((token) => token.kind === "value")).toHaveLength(500);
+    expect(tokens.some((token) => token.kind === "error")).toBe(true);
+    expect(parseKillTokens(["1-1000", "1001"]).some((token) => token.kind === "error")).toBe(true);
+  });
 });
 
 describe("resolveKillTarget", () => {
   const ports = [port({ port: 3000, pid: 42872, processName: "node" })];
 
   it("prefers a listener when the number is a port", () => {
-    expect(resolveKillTarget(3000, ports, () => false)).toEqual({
+    expect(resolveKillTarget(3000, ports)).toEqual({
       pid: 42872,
       via: "port",
       port: 3000,
@@ -54,7 +61,7 @@ describe("resolveKillTarget", () => {
   });
 
   it("does not kill a PID that is not listening", () => {
-    expect(resolveKillTarget(99999, ports, (pid) => pid === 99999)).toBeNull();
+    expect(resolveKillTarget(99999, ports)).toBeNull();
   });
 });
 
@@ -65,7 +72,6 @@ describe("applyKill", () => {
       parseKillTokens(["3000-3002"]),
       [port({ port: 3000, pid: 42872 })],
       false,
-      () => false,
       (pid, signal) => {
         sent.push({ pid, signal });
         return true;
@@ -83,7 +89,6 @@ describe("applyKill", () => {
       parseKillTokens(["3000"]),
       [port({ port: 3000, pid: 42 })],
       true,
-      () => false,
       () => true,
       42,
       1,
@@ -98,7 +103,6 @@ describe("applyKill", () => {
       parseKillTokens(["5432"]),
       [port({ port: 5432, pid: 58351, processName: "docker", docker: true })],
       false,
-      () => false,
       (pid) => {
         sent.push(pid);
         return true;
@@ -117,7 +121,6 @@ describe("applyKill", () => {
       parseKillTokens(["22"]),
       [port({ port: 22, pid: 10, processName: "sshd", command: "/usr/sbin/sshd" })],
       false,
-      () => false,
       (pid) => {
         sent.push(pid);
         return true;
@@ -136,7 +139,6 @@ describe("applyKill", () => {
       parseKillTokens(["99999"]),
       [port({ port: 3000, pid: 42872 })],
       false,
-      (pid) => pid === 99999,
       (pid) => {
         sent.push(pid);
         return true;

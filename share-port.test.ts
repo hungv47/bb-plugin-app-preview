@@ -9,6 +9,8 @@ import {
   rememberShareUrl,
   resetShareUrlCache,
   resolvePreviewShareUrl,
+  shouldRefreshPreviewShare,
+  forgetShareUrl,
 } from "./share-port.js";
 
 afterEach(() => {
@@ -191,5 +193,24 @@ describe("listedShareUrls", () => {
     }, Date.now());
     expect(calls).toBe(0);
     expect(urls.get(4321)).toBe("https://hung--4321.getbb.app");
+  });
+
+  it("drops a remembered URL so a later list does not keep showing it", async () => {
+    rememberShareUrl(4321, "https://hung--4321.getbb.app");
+    forgetShareUrl(4321);
+    const urls = await listedShareUrls(new Map(), async () => ({
+      hostId: null,
+      urlsByPort: new Map(),
+    }), Date.now());
+    expect(urls.has(4321)).toBe(false);
+  });
+});
+
+describe("shouldRefreshPreviewShare", () => {
+  it("shares while starting, keeps an existing getbb.app URL, and leaves an unshared running preview alone", () => {
+    expect(shouldRefreshPreviewShare("starting", null)).toBe(true);
+    expect(shouldRefreshPreviewShare("running", "https://hung--4321.getbb.app")).toBe(true);
+    expect(shouldRefreshPreviewShare("running", null)).toBe(false);
+    expect(shouldRefreshPreviewShare("running", "http://127.0.0.1:4321")).toBe(false);
   });
 });

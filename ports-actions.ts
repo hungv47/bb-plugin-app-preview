@@ -43,11 +43,29 @@ export function previewShareUrlMap(rows: readonly PreviewRow[]): Map<number, str
   return urls;
 }
 
-export function clearPreviewShare(db: Database, port: number, nowMs: number): void {
-  for (const row of listActivePreviews(db)) {
-    if (row.port !== port || row.shareUrl === null) continue;
-    upsertPreview(db, { ...row, shareUrl: null, updatedAt: nowMs });
+export function previewShareUpdates(
+  rows: readonly PreviewRow[],
+  port: number,
+  shareUrl: string | null,
+  nowMs: number,
+): PreviewRow[] {
+  // Share is per-port. Every active preview on that port gets the same URL.
+  const next: PreviewRow[] = [];
+  for (const row of rows) {
+    if (row.port !== port || row.shareUrl === shareUrl) continue;
+    next.push({ ...row, shareUrl, updatedAt: nowMs });
   }
+  return next;
+}
+
+export function writePreviewShare(db: Database, port: number, shareUrl: string | null, nowMs: number): void {
+  for (const row of previewShareUpdates(listActivePreviews(db), port, shareUrl, nowMs)) {
+    upsertPreview(db, row);
+  }
+}
+
+export function clearPreviewShare(db: Database, port: number, nowMs: number): void {
+  writePreviewShare(db, port, null, nowMs);
 }
 
 export function createPortsActions(db: Database, publish: () => void): PortsActions {
@@ -68,10 +86,17 @@ export function createPortsActions(db: Database, publish: () => void): PortsActi
     if (listed.error !== null) return { url: null, error: listed.error };
     const found = lookupShareTarget(listed.ports, port);
     if (!found.ok) return { url: null, error: found.error };
-    if (found.row.shareUrl !== null) return { url: found.row.shareUrl, error: null };
+    if (found.row.shareUrl !== null) {
+      if (isConnectShareUrl(found.row.shareUrl)) {
+        rememberShareUrl(port, found.row.shareUrl);
+        writePreviewShare(db, port, found.row.shareUrl, Date.now());
+      }
+      return { url: found.row.shareUrl, error: null };
+    }
     try {
       const url = await exposeConnectShare(null, port);
       rememberShareUrl(port, url);
+      writePreviewShare(db, port, url, Date.now());
       publish();
       return { url, error: null };
     } catch (cause) {

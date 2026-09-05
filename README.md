@@ -4,9 +4,9 @@ BB plugin that finds the app in the current thread's worktree, starts it in a th
 
 ![Starting a worktree app from the Preview panel](demo.gif)
 
-**Ports** in the sidebar lists listening TCP ports on this machine and can kill a listener. Dev servers show by default; Show all includes system apps. Share gives a bb connect URL for phone/remote preview. Unshare removes it. Share and kill refuse Docker-published ports and system apps.
+**Ports** in the sidebar lists listening TCP ports on this machine and can kill a listener. Dev servers show by default; Show all includes system apps. Filter the list. Preview-owned and shared ports sort first. Share gives a bb connect URL for phone/remote preview. Unshare removes it. Share and kill refuse Docker-published ports and system apps.
 
-Path: **Preview** in the thread side panel, the play control in the thread header, or **Preview app** in the command palette. Agents use `bb preview` or the `preview_app` / `preview_ports` tools.
+Path: **Preview** in the thread side panel, the play control in the thread header, or **Preview app** in the command palette. If start left you with a localhost URL, Share on that panel exposes it over bb connect. Unshare is there too once a getbb.app URL is set. Agents use `bb preview` or the `preview_app` / `preview_ports` tools.
 
 In a monorepo it lists every startable app it finds. Pick one. Start/Stop/Restart stay on that process. Remote clients get a bb connect share URL instead of localhost.
 

@@ -7,7 +7,7 @@ description: Detect, start, stop, and open the app in the current BB thread work
 
 This plugin runs the worktree (or branch checkout) attached to the current thread. It detects the framework and start command, launches the app in a BB terminal, and by default opens the ready URL in BB's in-app browser. Stop closes that browser. Users can turn auto-open off under plugin settings and use Open in browser themselves.
 
-It also lists listening TCP ports on the BB server machine (dev servers by default) and can kill a listener by port or PID. Share exposes a port over bb connect for phone/remote preview. Share and kill refuse Docker-published ports and system apps. Unshare is in the Ports panel when a share URL is already set.
+It also lists listening TCP ports on the BB server machine (dev servers by default) and can kill a listener by port or PID. Share exposes a port over bb connect for phone/remote preview. Share and Unshare are on the Preview panel for the running worktree port, and on the Ports list for any listener. Share and kill refuse Docker-published ports and system apps.
 
 Prefer `bb preview` over guessing `package.json` scripts or `lsof`.
 
@@ -40,7 +40,7 @@ The native tool `preview_app` is the worktree actions (`detect`, `start`, `stop`
 5. By default the in-app browser opens when the server is ready and stop closes it. If auto-open is off, give them the Open URL and let them use the Preview panel.
 6. Stop the preview when they are done testing, unless they asked to leave it up.
 7. For "what is on port 3000" or "kill whatever is on 5173", use `bb preview ports` / `bb preview kill`. Kill only what they asked for. Do not share or kill Docker-published ports or system apps. Stop the container instead.
-8. For phone or remote preview of a local HTTP port, use `bb preview share <port>` or the Ports panel Share control. That is `bb connect expose`, not a separate `bb tunnel` command. If share fails with ECONNREFUSED on 127.0.0.1, the process is listening on IPv6 loopback only. Restart the preview so it binds 127.0.0.1. Unshare from the Ports panel or `bb preview unshare <port>`.
+8. For phone or remote preview of a local HTTP port, use Share on the Preview panel, `bb preview share <port>`, or the Ports panel Share control. That is `bb connect expose`, not a separate `bb tunnel` command. If share fails with ECONNREFUSED on 127.0.0.1, the process is listening on IPv6 loopback only. Restart the preview so it binds 127.0.0.1. Unshare from the Preview panel, the Ports panel, or `bb preview unshare <port>`.
 
 ## Rules
 

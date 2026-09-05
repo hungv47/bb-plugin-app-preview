@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UrlLink, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { PreviewRpc } from "./contract";
+import { visibleListeningPorts } from "./ports-format";
 import {
   killPortsResultSchema,
   listPortsResultSchema,
@@ -10,6 +11,7 @@ import {
 } from "./ports-schema";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 function metaLine(row: ListeningPortDto): string {
@@ -22,11 +24,13 @@ export function PortsPanel() {
   const rpc = useRpc<PreviewRpc>();
   const connection = useRealtimeConnectionState();
   const [showAll, setShowAll] = useState(false);
+  const [query, setQuery] = useState("");
   const [ports, setPorts] = useState<ListeningPortDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<number | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const sawConnected = useRef(false);
+  const visible = useMemo(() => visibleListeningPorts(ports, query), [ports, query]);
 
   const load = useCallback(async () => {
     try {
@@ -64,14 +68,23 @@ export function PortsPanel() {
     return () => clearInterval(timer);
   }, [load]);
 
-  const kill = async (port: number, confirmed: boolean) => {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPending(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const kill = async (row: ListeningPortDto, confirmed: boolean) => {
     if (!confirmed) {
-      setPending(port);
+      setPending(`${row.port}-${row.pid}`);
       return;
     }
     setBusy(true);
     try {
-      const result = await rpc.call("killPorts", { targets: [String(port)] });
+      const result = await rpc.call("killPorts", { targets: [String(row.port)] });
       const killed = killPortsResultSchema.safeParse(result);
       if (!killed.success) {
         toast.error("Could not read the kill result.");
@@ -91,6 +104,7 @@ export function PortsPanel() {
   };
 
   const share = async (port: number) => {
+    setPending(null);
     setBusy(true);
     try {
       const result = await rpc.call("sharePort", { port });
@@ -107,6 +121,7 @@ export function PortsPanel() {
   };
 
   const unshare = async (port: number) => {
+    setPending(null);
     setBusy(true);
     try {
       const result = await rpc.call("unsharePort", { port });
@@ -135,7 +150,9 @@ export function PortsPanel() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
         <p className="text-sm font-medium">Listening ports</p>
-        <span className="text-xs text-muted-foreground">{ports.length}</span>
+        <span className="text-xs text-muted-foreground">
+          {query.trim() === "" ? ports.length : `${visible.length} of ${ports.length}`}
+        </span>
         <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           <input
             type="checkbox"
@@ -150,6 +167,17 @@ export function PortsPanel() {
           <Icon name="RotateCcw" className="size-4" />
         </Button>
       </div>
+      <div className="border-b border-border px-4 py-2">
+        <Input
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setPending(null);
+          }}
+          placeholder="Filter port, process, project"
+          aria-label="Filter ports"
+        />
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {error !== null ? (
           <p role="alert" className="text-sm text-destructive">
@@ -163,9 +191,12 @@ export function PortsPanel() {
               : "No dev servers listening. Show all to include system apps."}
           </p>
         ) : null}
+        {error === null && ports.length > 0 && visible.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No ports match that filter.</p>
+        ) : null}
         <ul className="space-y-2">
-          {ports.map((row) => {
-            const confirm = pending === row.port;
+          {visible.map((row) => {
+            const confirm = pending === `${row.port}-${row.pid}`;
             const meta = metaLine(row);
             return (
               <li key={`${row.port}-${row.pid}`} className="rounded-md border border-border px-2 py-2">
@@ -188,7 +219,7 @@ export function PortsPanel() {
                       </p>
                     ) : null}
                     {row.ownedByPreview ? (
-                      <p className="mt-0.5 text-xs text-muted-foreground">preview</p>
+                      <p className="mt-0.5 text-xs font-medium text-foreground">Preview</p>
                     ) : null}
                     {!row.listensOnIpv4 ? (
                       <p className="mt-0.5 text-xs text-destructive">
@@ -235,14 +266,31 @@ export function PortsPanel() {
                         Unshare
                       </Button>
                     )}
-                    <Button
-                      variant={confirm ? "destructive" : "outline"}
-                      size="sm"
-                      disabled={busy || row.docker}
-                      onClick={() => void kill(row.port, confirm)}
-                    >
-                      {confirm ? "Confirm" : "Kill"}
-                    </Button>
+                    {confirm ? (
+                      <>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={busy || row.docker}
+                          onClick={() => void kill(row, true)}
+                          aria-label={`Confirm kill :${row.port}`}
+                        >
+                          Confirm
+                        </Button>
+                        <Button variant="ghost" size="sm" disabled={busy} onClick={() => setPending(null)}>
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || row.docker}
+                        onClick={() => void kill(row, false)}
+                      >
+                        Kill
+                      </Button>
+                    )}
                   </div>
                 </div>
               </li>

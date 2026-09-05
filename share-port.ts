@@ -36,6 +36,10 @@ export function parseConnectExposeJson(stdout: string): string {
   return parsed.data.url;
 }
 
+export function shouldRefreshPreviewShare(status: string, shareUrl: string | null): boolean {
+  return status === "starting" || (shareUrl !== null && isConnectShareUrl(shareUrl));
+}
+
 export function isConnectShareUrl(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;

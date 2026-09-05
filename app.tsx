@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import type { InspectResult } from "./contract";
 import { rpcContract } from "./contract";
 import { splitCdPrefix } from "./detect";
+import { sharePortResultSchema } from "./ports-schema";
 import { omitUndefined } from "./rpc-input";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -94,7 +95,45 @@ function usePreview(threadId: string) {
     [rpc, threadId],
   );
 
-  return { data, error, busy, load, run };
+  const share = useCallback(
+    async (port: number) => {
+      setBusy(true);
+      try {
+        const result = await rpc.call("sharePort", { port });
+        const shared = sharePortResultSchema.safeParse(result);
+        if (!shared.success) toast.error("Could not read the share result.");
+        else if (shared.data.error !== null) toast.error(shared.data.error);
+        else if (shared.data.url !== null) toast.success("Shared port");
+        await load();
+      } catch (cause) {
+        toast.error(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, rpc],
+  );
+
+  const unshare = useCallback(
+    async (port: number) => {
+      setBusy(true);
+      try {
+        const result = await rpc.call("unsharePort", { port });
+        const shared = sharePortResultSchema.safeParse(result);
+        if (!shared.success) toast.error("Could not read the unshare result.");
+        else if (shared.data.error !== null) toast.error(shared.data.error);
+        else toast.success("Unshared port");
+        await load();
+      } catch (cause) {
+        toast.error(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, rpc],
+  );
+
+  return { data, error, busy, load, run, share, unshare };
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -113,7 +152,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function PreviewPanel({ threadId }: { threadId: string }) {
   const navigate = useBbNavigate();
-  const { data, error, busy, run } = usePreview(threadId);
+  const { data, error, busy, run, share, unshare } = usePreview(threadId);
   const [command, setCommand] = useState("");
   const [port, setPort] = useState("");
   const [selectedCwd, setSelectedCwd] = useState(".");
@@ -343,9 +382,8 @@ function PreviewPanel({ threadId }: { threadId: string }) {
         preview.shareUrl === null &&
         preview.localUrl !== null ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            This URL is only reachable on the workspace machine. Enroll that machine under
-            Settings → Machines, then Restart, so Preview can open a share link from another
-            device.
+            This URL is only reachable on this machine. Share over bb connect for a phone or
+            a getbb.app client.
           </p>
         ) : null}
 
@@ -394,6 +432,34 @@ function PreviewPanel({ threadId }: { threadId: string }) {
           <Icon name="Globe" className="size-4" />
           Open in browser
         </Button>
+        {preview?.status === "running" &&
+        preview.shareUrl === null &&
+        preview.port !== null ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              if (preview.port !== null) void share(preview.port);
+            }}
+          >
+            Share
+          </Button>
+        ) : null}
+        {preview?.status === "running" &&
+        preview.shareUrl !== null &&
+        preview.port !== null ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              if (preview.port !== null) void unshare(preview.port);
+            }}
+          >
+            Unshare
+          </Button>
+        ) : null}
         <Button
           variant="outline"
           size="sm"

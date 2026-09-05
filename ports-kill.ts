@@ -7,8 +7,11 @@ export type KillToken =
 
 const RANGE = /^(\d+)-(\d+)$/;
 
+const MAX_KILL_VALUES = 1000;
+
 export function parseKillTokens(tokens: readonly string[]): KillToken[] {
   const out: KillToken[] = [];
+  let values = 0;
   for (const token of tokens) {
     const range = token.match(RANGE);
     if (range !== null && range[1] !== undefined && range[2] !== undefined) {
@@ -18,17 +21,23 @@ export function parseKillTokens(tokens: readonly string[]): KillToken[] {
         out.push({ kind: "error", message: `Invalid range: ${token} (start must be less than end)` });
         continue;
       }
-      if (end - start + 1 > 1000) {
-        out.push({ kind: "error", message: `Range too large: ${token} (max 1000 ports)` });
+      const size = end - start + 1;
+      if (size > MAX_KILL_VALUES) {
+        out.push({ kind: "error", message: `Range too large: ${token} (max ${MAX_KILL_VALUES} ports)` });
         continue;
       }
       if (start < 1 || end > 65535) {
         out.push({ kind: "error", message: `Invalid range: ${token} (ports must be 1-65535)` });
         continue;
       }
+      if (values + size > MAX_KILL_VALUES) {
+        out.push({ kind: "error", message: `Too many ports (max ${MAX_KILL_VALUES})` });
+        continue;
+      }
       for (let p = start; p <= end; p += 1) {
         out.push({ kind: "value", n: p, fromRange: true, label: String(p) });
       }
+      values += size;
       continue;
     }
     const n = Number.parseInt(token, 10);
@@ -36,12 +45,16 @@ export function parseKillTokens(tokens: readonly string[]): KillToken[] {
       out.push({ kind: "error", message: `"${token}" is not a valid port/PID` });
       continue;
     }
+    if (values >= MAX_KILL_VALUES) {
+      out.push({ kind: "error", message: `Too many ports (max ${MAX_KILL_VALUES})` });
+      continue;
+    }
     out.push({ kind: "value", n, fromRange: false, label: token });
+    values += 1;
   }
   return out;
 }
 
-export type PidExists = (pid: number) => boolean;
 export type SendSignal = (pid: number, signal: "SIGTERM" | "SIGKILL") => boolean;
 
 export type ResolvedKillTarget = {
@@ -52,11 +65,7 @@ export type ResolvedKillTarget = {
   row: ListeningPort;
 };
 
-export function resolveKillTarget(
-  n: number,
-  ports: readonly ListeningPort[],
-  _pidExists: PidExists,
-): ResolvedKillTarget | null {
+export function resolveKillTarget(n: number, ports: readonly ListeningPort[]): ResolvedKillTarget | null {
   if (!Number.isInteger(n) || n < 1) return null;
   if (n <= 65535) {
     const info = ports.find((port) => port.port === n);
@@ -93,7 +102,6 @@ export function applyKill(
   tokens: readonly KillToken[],
   ports: readonly ListeningPort[],
   force: boolean,
-  pidExists: PidExists,
   sendSignal: SendSignal,
   selfPid: number,
   parentPid: number,
@@ -114,7 +122,7 @@ export function applyKill(
       });
       continue;
     }
-    const resolved = resolveKillTarget(token.n, ports, pidExists);
+    const resolved = resolveKillTarget(token.n, ports);
     if (resolved === null) {
       if (token.fromRange) {
         outcomes.push({

@@ -11,8 +11,10 @@ import { isSafeRelativeCwd } from "./paths.js";
 import { decodeTerminalChunks, parseReadyHint, tailText } from "./ready.js";
 import {
   exposeConnectShare,
+  forgetShareUrl,
   isConnectShareUrl,
   resolvePreviewShareUrl,
+  shouldRefreshPreviewShare,
   unexposeConnectShare,
 } from "./share-port.js";
 import { collectSnapshots } from "./snapshot.js";
@@ -346,9 +348,9 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
   }
 
   async function releaseShare(row: PreviewRow): Promise<void> {
-    if (row.port === null || row.shareUrl === null || !isConnectShareUrl(row.shareUrl)) {
-      return;
-    }
+    if (row.port === null) return;
+    forgetShareUrl(row.port);
+    if (row.shareUrl === null || !isConnectShareUrl(row.shareUrl)) return;
     try {
       await unexposeConnectShare(row.hostId, row.port);
     } catch (cause) {
@@ -414,8 +416,10 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         } catch (cause) {
           bb.log.warn(`declareSharedPorts(${row.hostId}) failed: ${asErrorMessage(cause)}`);
         }
-        const share = await tryShareUrl(row.hostId, hint.port);
-        if (share !== null) row.shareUrl = share;
+        if (shouldRefreshPreviewShare(row.status, row.shareUrl)) {
+          const share = await tryShareUrl(row.hostId, hint.port);
+          if (share !== null) row.shareUrl = share;
+        }
         if (row.status === "starting") {
           row.status = "running";
           row.error = null;

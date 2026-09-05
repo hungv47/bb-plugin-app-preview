@@ -26,3 +26,51 @@ export function uptimeFromLstart(lstart: string, nowMs: number): string | null {
   const start = parseLstartMs(lstart, nowMs);
   return start === null ? null : formatUptime(nowMs - start);
 }
+
+export type PortListMatch = {
+  port: number;
+  pid: number;
+  processName: string;
+  projectName: string | null;
+  framework: string | null;
+  command: string;
+  status: string;
+  docker: boolean;
+  ownedByPreview: boolean;
+  shareUrl: string | null;
+};
+
+function portRowHaystack(row: PortListMatch): string {
+  return [
+    `:${row.port}`,
+    String(row.port),
+    String(row.pid),
+    row.processName,
+    row.projectName ?? "",
+    row.framework ?? "",
+    row.command,
+    row.status,
+    row.docker ? "docker" : "",
+    row.ownedByPreview ? "preview" : "",
+    row.shareUrl ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function portRowRank(row: PortListMatch): number {
+  if (row.ownedByPreview) return 0;
+  if (row.shareUrl !== null) return 1;
+  return 2;
+}
+
+export function visibleListeningPorts<T extends PortListMatch>(ports: readonly T[], query: string): T[] {
+  const needle = query.trim().toLowerCase();
+  const matched = needle === "" ? [...ports] : ports.filter((row) => portRowHaystack(row).includes(needle));
+  return matched.sort((a, b) => {
+    const rank = portRowRank(a) - portRowRank(b);
+    if (rank !== 0) return rank;
+    if (a.port !== b.port) return a.port - b.port;
+    return a.pid - b.pid;
+  });
+}

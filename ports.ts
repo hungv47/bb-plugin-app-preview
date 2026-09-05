@@ -1,6 +1,6 @@
 import { isDevProcess } from "./ports-classify.js";
 import { assembleListeningPorts } from "./ports-scan.js";
-import { applyKill, parseKillTokens, type PidExists, type SendSignal } from "./ports-kill.js";
+import { applyKill, parseKillTokens, type SendSignal } from "./ports-kill.js";
 import { collectListenSnapshot, defaultPathExists, defaultRunCommand } from "./ports-platform.js";
 import type { KillOutcome, ListeningPort } from "./ports-types.js";
 
@@ -40,15 +40,6 @@ export function lookupShareTarget(ports: readonly ListeningPort[], port: number)
   return { ok: true, row };
 }
 
-export function pidExists(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function sendSignal(pid: number, signal: "SIGTERM" | "SIGKILL"): boolean {
   try {
     process.kill(pid, signal);
@@ -71,22 +62,13 @@ export function killListening(
   rawTargets: readonly string[],
   force: boolean,
   previewPorts: ReadonlySet<number>,
-  exists: PidExists = pidExists,
   signal: SendSignal = sendSignal,
 ): PortsKillResult {
   const listed = listListeningPorts(true, previewPorts);
   if (listed.error !== null) return { outcomes: [], error: listed.error };
   const tokens = parseKillTokens(rawTargets);
   const parentPid = process.ppid;
-  const outcomes = applyKill(
-    tokens,
-    listed.ports,
-    force,
-    exists,
-    signal,
-    process.pid,
-    parentPid,
-  );
+  const outcomes = applyKill(tokens, listed.ports, force, signal, process.pid, parentPid);
   return { outcomes, error: null };
 }
 
