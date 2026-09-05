@@ -179,7 +179,7 @@ describe("launchCommand", () => {
       },
       { autoInstall: true },
     );
-    expect(command).toBe("cd apps/web && pnpm install && pnpm dev");
+    expect(command).toBe("cd apps/web && pnpm install && pnpm dev -- --hostname 127.0.0.1");
   });
 
   it("uses an override as the inner command and still installs", () => {
@@ -199,7 +199,7 @@ describe("launchCommand", () => {
       },
       { autoInstall: true, commandOverride: "npm run preview -- --port 4173" },
     );
-    expect(command).toBe("npm install && npm run preview -- --port 4173");
+    expect(command).toBe("npm install && npm run preview -- --port 4173 --host 127.0.0.1");
   });
 
   it("does not wrap a command that already starts with cd", () => {
@@ -219,7 +219,7 @@ describe("launchCommand", () => {
       },
       { autoInstall: true, commandOverride: "cd personal/site && bun run dev" },
     );
-    expect(command).toBe("cd personal/site && pnpm install && bun run dev");
+    expect(command).toBe("cd personal/site && pnpm install && bun run dev -- --hostname 127.0.0.1");
   });
 
   it("cds into the worktree with an absolute path when given one", () => {
@@ -244,7 +244,147 @@ describe("launchCommand", () => {
       },
     );
     expect(command).toBe(
-      "cd /Users/hungv47/.bb/worktrees/env_x/forsvn/forsvn/anzoa/app && bun run dev",
+      "cd /Users/hungv47/.bb/worktrees/env_x/forsvn/forsvn/anzoa/app && bun run dev -- --hostname 127.0.0.1",
     );
+  });
+
+  it("binds Astro to 127.0.0.1 so Connect share can reach it", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "astro",
+        frameworkLabel: "Astro",
+        packageManager: "pnpm",
+        command: "pnpm dev",
+        installCommand: null,
+        port: 4321,
+        relativeCwd: ".",
+        dependencies: ["astro"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false },
+    );
+    expect(command).toBe("pnpm dev -- --host 127.0.0.1");
+  });
+
+  it("leaves an explicit --host flag alone", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "astro",
+        frameworkLabel: "Astro",
+        packageManager: "pnpm",
+        command: "pnpm dev",
+        installCommand: null,
+        port: 4321,
+        relativeCwd: ".",
+        dependencies: ["astro"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false, commandOverride: "pnpm dev -- --host 0.0.0.0" },
+    );
+    expect(command).toBe("pnpm dev -- --host 0.0.0.0");
+  });
+
+  it("does not append a host flag to a non-JS override", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "astro",
+        frameworkLabel: "Astro",
+        packageManager: "pnpm",
+        command: "pnpm dev",
+        installCommand: null,
+        port: 4321,
+        relativeCwd: ".",
+        dependencies: ["astro"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false, commandOverride: "python -m http.server 4321" },
+    );
+    expect(command).toBe("python -m http.server 4321");
+  });
+
+  it("binds Expo to 127.0.0.1", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "expo",
+        frameworkLabel: "Expo",
+        packageManager: "npm",
+        command: "npx expo start",
+        installCommand: null,
+        port: 8081,
+        relativeCwd: ".",
+        dependencies: ["expo"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false },
+    );
+    expect(command).toBe("npx expo start --localhost");
+  });
+
+  it("leaves Expo --localhost alone", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "expo",
+        frameworkLabel: "Expo",
+        packageManager: "npm",
+        command: "npx expo start",
+        installCommand: null,
+        port: 8081,
+        relativeCwd: ".",
+        dependencies: ["expo"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false, commandOverride: "npx expo start --localhost" },
+    );
+    expect(command).toBe("npx expo start --localhost");
+  });
+
+  it("does not append --host to Remix", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "remix",
+        frameworkLabel: "Remix",
+        packageManager: "npm",
+        command: "npm run dev",
+        installCommand: null,
+        port: 3000,
+        relativeCwd: ".",
+        dependencies: ["@remix-run/react"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false },
+    );
+    expect(command).toBe("npm run dev");
+  });
+
+  it("prefixes Create React App with HOST=127.0.0.1", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "cra",
+        frameworkLabel: "Create React App",
+        packageManager: "npm",
+        command: "npm start",
+        installCommand: null,
+        port: 3000,
+        relativeCwd: ".",
+        dependencies: ["react-scripts"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false },
+    );
+    expect(command).toBe("HOST=127.0.0.1 npm start");
   });
 });

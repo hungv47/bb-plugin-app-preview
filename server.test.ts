@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   createFakePluginHost,
@@ -171,7 +172,9 @@ describe("plugin inspect", () => {
       threadId: "thr_1",
       relativeCwd: "apps/web",
     });
-    expect(created.command).toBe("cd /repo/apps/web && npm install && npm run dev");
+    expect(created.command).toBe(
+      "cd /repo/apps/web && npm install && npm run dev -- --hostname 127.0.0.1",
+    );
     expect(result.detection.relativeCwd).toBe("apps/web");
     expect(result.preview.status).toBe("starting");
     await harness.lifecycle.dispose();
@@ -772,5 +775,68 @@ describe("plugin inspect", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toMatch(/--thread/);
     await harness.lifecycle.dispose();
+  });
+
+  it("lists listening ports from the CLI without a thread", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    const result = await harness.behavior.runCli(["ports", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(String(result.stdout)).toContain('"ports"');
+    await harness.lifecycle.dispose();
+  });
+
+  it("refuses CLI share of a port that is not listening", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    const result = await harness.behavior.runCli(["share", "1"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/Nothing is listening on :1/);
+    await harness.lifecycle.dispose();
+  });
+
+  it("refuses CLI kill without a target", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    const result = await harness.behavior.runCli(["kill"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/bb preview kill/);
+    await harness.lifecycle.dispose();
+  });
+
+  it("kills a throwaway listener by port", async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        "require('http').createServer().listen(18792,'127.0.0.1',()=>process.stdout.write('ready'))",
+      ],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("listener did not start")), 5000);
+      child.stdout?.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("ready")) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      child.on("error", reject);
+    });
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    try {
+      const listed = await harness.behavior.runCli(["ports", "--all", "--json"]);
+      expect(listed.exitCode).toBe(0);
+      expect(String(listed.stdout)).toContain('"port":18792');
+      const killed = await harness.behavior.runCli(["kill", "18792"]);
+      expect(killed.exitCode).toBe(0);
+      expect(String(killed.stdout)).toMatch(/SIGTERM/);
+      const after = await harness.behavior.runCli(["ports", "--all", "--json"]);
+      expect(String(after.stdout)).not.toContain('"port":18792');
+    } finally {
+      child.kill("SIGKILL");
+      await harness.lifecycle.dispose();
+    }
   });
 });

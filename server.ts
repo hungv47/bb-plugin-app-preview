@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { rpcContract } from "./contract.js";
+import { PORTS_CHANGED, rpcContract } from "./contract.js";
+import { formatKillOutcomes, formatPortsTable } from "./ports.js";
+import { createPortsActions } from "./ports-actions.js";
 import { createPreviewService, sleep, type InspectResult } from "./service.js";
 import { environmentPreviewBlocker } from "./workspace-error.js";
 
@@ -102,6 +104,10 @@ const USAGE = [
   "  bb preview stop [--thread <id>] [--json]",
   "  bb preview restart [--thread <id>] [--command <cmd>] [--cwd <dir>] [--port <n>] [--json]",
   "  bb preview status [--thread <id>] [--json]",
+  "  bb preview ports [--all] [--json]",
+  "  bb preview share <port> [--json]",
+  "  bb preview unshare <port> [--json]",
+  "  bb preview kill [--force] <port|pid|range> [port|pid|range...]",
 ].join("\n");
 
 export default async function plugin(bb: BbPluginApi) {
@@ -139,6 +145,10 @@ export default async function plugin(bb: BbPluginApi) {
     serviceSettings.autoOpenBrowser = next.autoOpenBrowser;
   });
 
+  const ports = createPortsActions(service.db, () => {
+    bb.realtime.publish(PORTS_CHANGED, { at: Date.now() });
+  });
+
   bb.rpc.register(rpcContract, {
     inspect: ({ threadId }) => service.inspect(threadId),
     start: ({ threadId, command, port, relativeCwd }) =>
@@ -146,11 +156,15 @@ export default async function plugin(bb: BbPluginApi) {
     stop: ({ threadId }) => service.stop(threadId),
     restart: ({ threadId, command, port, relativeCwd }) =>
       service.restart(threadId, { command, port, relativeCwd }),
+    listPorts: ({ all }) => ports.listPorts(all === true),
+    killPorts: ({ targets, force }) => ports.killPorts(targets, force === true),
+    sharePort: ({ port }) => ports.sharePort(port),
+    unsharePort: ({ port }) => ports.unsharePort(port),
   });
 
   bb.cli.register({
     name: "preview",
-    summary: "Detect, start, and stop the app in a thread worktree",
+    summary: "Detect, start, and stop the app in a thread worktree, or list, share, and kill listening ports",
     commands: [
       {
         name: "detect",
@@ -177,11 +191,70 @@ export default async function plugin(bb: BbPluginApi) {
         summary: "Show detection and whether the app is running",
         usage: "bb preview status [--thread <id>] [--json]",
       },
+      {
+        name: "ports",
+        summary: "List listening TCP ports on this machine (dev servers by default)",
+        usage: "bb preview ports [--all] [--json]",
+      },
+      {
+        name: "share",
+        summary: "Expose a listening port over bb connect for phone/remote preview",
+        usage: "bb preview share <port> [--json]",
+      },
+      {
+        name: "unshare",
+        summary: "Remove a bb connect share for a port",
+        usage: "bb preview unshare <port> [--json]",
+      },
+      {
+        name: "kill",
+        summary: "Kill a listener by port or PID (range 3000-3010; --force for SIGKILL)",
+        usage: "bb preview kill [--force] <port|pid|range> [port|pid|range...]",
+      },
     ],
     async run(argv, ctx) {
       const json = wantsJson(argv);
       const withoutJson = argv.filter((arg) => arg !== "--json");
       try {
+        const [head, ...raw] = withoutJson;
+        if (head === "ports") {
+          const showAll = raw.includes("--all") || raw.includes("-a");
+          const leftover = raw.filter((arg) => arg !== "--all" && arg !== "-a");
+          if (leftover.length > 0) return { exitCode: 1, stderr: USAGE };
+          const listed = await ports.listPorts(showAll);
+          if (listed.error !== null) return { exitCode: 1, stderr: listed.error };
+          return {
+            exitCode: 0,
+            stdout: json ? JSON.stringify(listed) : formatPortsTable(listed.ports),
+          };
+        }
+        if (head === "share" || head === "unshare") {
+          const port = Number.parseInt(raw[0] ?? "", 10);
+          if (raw.length !== 1 || !Number.isInteger(port) || port < 1 || port > 65535) {
+            return { exitCode: 1, stderr: `Usage: bb preview ${head} <port>` };
+          }
+          const shared = head === "share" ? await ports.sharePort(port) : await ports.unsharePort(port);
+          if (shared.error !== null) return { exitCode: 1, stderr: shared.error };
+          if (json) return { exitCode: 0, stdout: JSON.stringify(shared) };
+          return {
+            exitCode: 0,
+            stdout: head === "share" ? (shared.url ?? "Shared.") : `Unshared :${port}`,
+          };
+        }
+        if (head === "kill") {
+          const force = raw.includes("--force") || raw.includes("-f");
+          const targets = raw.filter((arg) => arg !== "--force" && arg !== "-f");
+          if (targets.length === 0) {
+            return { exitCode: 1, stderr: "Usage: bb preview kill [--force] <port|pid|range> [...]" };
+          }
+          const killed = await ports.killPorts(targets, force);
+          if (killed.error !== null) return { exitCode: 1, stderr: killed.error };
+          const failed = killed.outcomes.some((outcome) => !outcome.ok);
+          return {
+            exitCode: failed ? 1 : 0,
+            stdout: json ? JSON.stringify(killed) : formatKillOutcomes(killed.outcomes),
+          };
+        }
         const threadTaken = takeFlag(withoutJson, "--thread");
         const commandTaken = takeFlag(threadTaken.rest, "--command");
         const cwdTaken = takeFlag(commandTaken.rest, "--cwd");
@@ -270,6 +343,67 @@ export default async function plugin(bb: BbPluginApi) {
       return {
         content: [{ type: "text", text: formatInspect(result) }],
         isError: result.error !== null,
+      };
+    },
+  });
+
+  bb.agents.registerTool({
+    name: "preview_ports",
+    description:
+      "List listening TCP ports on this machine, share one over bb connect, or kill a listener by port or PID. Dev servers are listed by default; pass all to include system apps. Share and kill refuse Docker-published ports and system apps.",
+    instructions:
+      "Use preview_ports when the user wants to see, share, or free a port. Prefer this over guessing lsof. Share returns a bb connect URL for phone/remote preview. Do not share or kill Docker-published ports or system apps. Kill is destructive: only kill what they asked for. Give them the port, process, PID, and share URL if one exists.",
+    presentation: {
+      label: {
+        pending: "Checking listening ports",
+        completed: "Checked listening ports",
+      },
+    },
+    parameters: z.object({
+      action: z.enum(["list", "kill", "share", "unshare"]),
+      all: z.boolean().optional(),
+      targets: z.array(z.string().min(1).max(32)).max(1000).optional(),
+      port: z.number().int().min(1).max(65535).optional(),
+      force: z.boolean().optional(),
+    }),
+    async execute({ action, all, targets, port, force }) {
+      if (action === "list") {
+        const listed = await ports.listPorts(all === true);
+        return {
+          content: [{ type: "text", text: listed.error ?? formatPortsTable(listed.ports) }],
+          isError: listed.error !== null,
+        };
+      }
+      if (action === "share" || action === "unshare") {
+        if (port === undefined) {
+          return {
+            content: [{ type: "text", text: `${action} needs a port.` }],
+            isError: true,
+          };
+        }
+        const shared = action === "share" ? await ports.sharePort(port) : await ports.unsharePort(port);
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                shared.error ??
+                (action === "share" ? (shared.url ?? "Shared.") : `Unshared :${port}`),
+            },
+          ],
+          isError: shared.error !== null,
+        };
+      }
+      if (targets === undefined || targets.length === 0) {
+        return {
+          content: [{ type: "text", text: "kill needs targets: a port, PID, or range such as 3000-3010." }],
+          isError: true,
+        };
+      }
+      const killed = await ports.killPorts(targets, force === true);
+      return {
+        content: [{ type: "text", text: killed.error ?? formatKillOutcomes(killed.outcomes) }],
+        isError: killed.error !== null || killed.outcomes.some((outcome) => !outcome.ok),
       };
     },
   });

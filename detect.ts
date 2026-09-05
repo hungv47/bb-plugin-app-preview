@@ -547,6 +547,57 @@ export function splitCdPrefix(command: string): { relativeCwd: string | null; co
   return { relativeCwd, command: match[2].trim() };
 }
 
+function commandHasListenHost(command: string): boolean {
+  return (
+    /(?:^|[\s;|&])HOST=/.test(command) ||
+    /(?:^|\s)(?:--host|--hostname|-H)(?:\s|=)/.test(command) ||
+    /(?:^|\s)--(?:localhost|lan|tunnel)(?:\s|$)/.test(command)
+  );
+}
+
+function ipv4HostFlag(framework: string | null): string | null {
+  switch (framework) {
+    case "next":
+      return "--hostname 127.0.0.1";
+    case "astro":
+    case "vite":
+    case "nuxt":
+    case "sveltekit":
+    case "angular":
+    case "tanstack-start":
+      return "--host 127.0.0.1";
+    case "expo":
+      return "--localhost";
+    default:
+      return null;
+  }
+}
+
+function looksLikeJsDevScript(command: string): boolean {
+  return (
+    /^(?:npm|pnpm|yarn|bun|npx|bunx)(?:\s+run)?\s+\S+/.test(command) ||
+    /\b(?:astro|vite|next|nuxt|remix|expo|react-scripts)\b/.test(command) ||
+    /\bng serve\b/.test(command)
+  );
+}
+
+/**
+ * Connect share forwards to 127.0.0.1. `localhost` on macOS often binds [::1] only,
+ * which then fails with ECONNREFUSED on the share URL.
+ */
+export function withIpv4ListenHost(command: string, framework: string | null): string {
+  if (framework === "cra" && !commandHasListenHost(command) && looksLikeJsDevScript(command)) {
+    return `HOST=127.0.0.1 ${command}`;
+  }
+  const flag = ipv4HostFlag(framework);
+  if (flag === null || commandHasListenHost(command) || !looksLikeJsDevScript(command)) {
+    return command;
+  }
+  if (/(?:^|\s)--(?:\s|$)/.test(command)) return `${command} ${flag}`;
+  if (/^(?:npm|pnpm|yarn|bun)(?:\s+run)?\s+\S+/.test(command)) return `${command} -- ${flag}`;
+  return `${command} ${flag}`;
+}
+
 export function launchCommand(
   detection: Detection,
   options: {
@@ -560,9 +611,10 @@ export function launchCommand(
   if (options.commandOverride !== undefined && options.commandOverride.trim() !== "") {
     inner = split.command !== "" ? split.command : options.commandOverride.trim();
   }
-  if (inner === undefined || inner === "") {
+  if (inner === undefined || inner === null || inner === "") {
     throw new Error("No start command to run.");
   }
+  inner = withIpv4ListenHost(inner, detection.framework);
   const relativeCwd = split.relativeCwd ?? detection.relativeCwd;
   const withInstall =
     options.autoInstall && detection.installCommand !== null

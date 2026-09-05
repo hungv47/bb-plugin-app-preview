@@ -18,6 +18,7 @@ import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { formatHomePathForDisplay, cn } from "@/lib/utils";
 import { environmentPreviewBlocker } from "./workspace-error";
+import { PortsPanel } from "./ports-panel";
 
 function isInspect(value: unknown): value is InspectResult {
   return typeof value === "object" && value !== null && "workspace" in value;
@@ -393,6 +394,13 @@ function PreviewPanel({ threadId }: { threadId: string }) {
           <Icon name="Globe" className="size-4" />
           Open in browser
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate.toPluginPanel("ports")}
+        >
+          Ports
+        </Button>
       </div>
     </div>
   );
@@ -435,5 +443,12 @@ export default definePluginApp((app) => {
     run: ({ openPanel }) => {
       openPanel({ actionId: "preview", title: "Preview" });
     },
+  });
+  app.slots.navPanel({
+    id: "ports",
+    title: "Ports",
+    icon: "Radio",
+    path: "ports",
+    component: PortsPanel,
   });
 });

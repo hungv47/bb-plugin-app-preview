@@ -21,20 +21,14 @@
     "skipLibCheck": false
   },
   "include": [
-    "server.ts",
-    "app.tsx",
-    "contract.ts",
-    "detect.ts",
-    "ready.ts",
-    "paths.ts",
-    "snapshot.ts",
-    "store.ts",
-    "service.ts",
-    "browser-tabs.ts",
-    "rpc-input.ts",
+    "*.ts",
+    "*.tsx",
     "components",
     "lib",
-    "hooks",
-    "*.test.ts"
+    "hooks"
+  ],
+  "exclude": [
+    "tools",
+    "node_modules"
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-app-preview",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
   },
   "bb": {
     "name": "App Preview",
-    "description": "Detect the app in a thread worktree, launch it, open it in BB's in-app browser, and close that browser when the preview stops.",
+    "description": "Detect the app in a thread worktree, launch it, open it in BB's in-app browser, and list, share, or kill listening ports on this machine.",
     "branding": {
       "icon": "Play"
     },

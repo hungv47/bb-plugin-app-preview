@@ -1,9 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  attachShareUrls,
   isConnectShareUrl,
+  listedShareUrls,
+  mergeShareUrlMaps,
   parseConnectExposeJson,
+  parseConnectSharesJson,
+  rememberShareUrl,
+  resetShareUrlCache,
   resolvePreviewShareUrl,
 } from "./share-port.js";
+
+afterEach(() => {
+  resetShareUrlCache();
+});
 
 describe("parseConnectExposeJson", () => {
   it("reads the share URL from bb connect expose --json", () => {
@@ -23,6 +33,12 @@ describe("parseConnectExposeJson", () => {
       /share URL/,
     );
   });
+
+  it("rejects an https URL that is not a getbb.app share", () => {
+    expect(() => parseConnectExposeJson(JSON.stringify({ url: "https://127.0.0.1:5173" }))).toThrow(
+      /share URL/,
+    );
+  });
 });
 
 describe("isConnectShareUrl", () => {
@@ -32,6 +48,7 @@ describe("isConnectShareUrl", () => {
 
   it("rejects localhost", () => {
     expect(isConnectShareUrl("http://127.0.0.1:18768/")).toBe(false);
+    expect(isConnectShareUrl("https://127.0.0.1:5173")).toBe(false);
   });
 });
 
@@ -74,5 +91,105 @@ describe("resolvePreviewShareUrl", () => {
       },
     );
     expect(url).toBeNull();
+  });
+});
+
+describe("parseConnectSharesJson", () => {
+  it("maps ports to share URLs", () => {
+    const listed = parseConnectSharesJson(
+      JSON.stringify({
+        host: { id: "host_te8ta4cgrn" },
+        shares: [
+          { port: 4321, url: "https://hung--4321.getbb.app" },
+          { hostId: "host_te8ta4cgrn", port: 5173, url: "https://hung--5173.getbb.app" },
+        ],
+      }),
+    );
+    expect(listed.hostId).toBe("host_te8ta4cgrn");
+    expect(listed.urlsByPort.get(4321)).toBe("https://hung--4321.getbb.app");
+    expect(listed.urlsByPort.get(5173)).toBe("https://hung--5173.getbb.app");
+  });
+
+  it("skips URLs that are not getbb.app shares", () => {
+    const listed = parseConnectSharesJson(
+      JSON.stringify({
+        host: { id: "host_te8ta4cgrn" },
+        shares: [
+          { port: 5173, url: "https://127.0.0.1:5173" },
+          { port: 4321, url: "https://hung--4321.getbb.app" },
+        ],
+      }),
+    );
+    expect(listed.urlsByPort.has(5173)).toBe(false);
+    expect(listed.urlsByPort.get(4321)).toBe("https://hung--4321.getbb.app");
+  });
+});
+
+describe("attachShareUrls", () => {
+  it("copies known share URLs onto matching rows", () => {
+    const ports = attachShareUrls(
+      [
+        {
+          port: 4321,
+          pid: 1,
+          processName: "node",
+          command: "astro",
+          cwd: null,
+          projectName: "site",
+          framework: "Astro",
+          uptime: null,
+          memory: null,
+          status: "healthy",
+          docker: false,
+          ownedByPreview: true,
+          shareUrl: null,
+          listensOnIpv4: true,
+        },
+      ],
+      new Map([[4321, "https://hung--4321.getbb.app"]]),
+    );
+    expect(ports[0]?.shareUrl).toBe("https://hung--4321.getbb.app");
+  });
+});
+
+describe("mergeShareUrlMaps", () => {
+  it("lets Connect URLs overwrite preview SQLite URLs", () => {
+    const merged = mergeShareUrlMaps(
+      new Map([[4321, "https://old--4321.getbb.app"]]),
+      new Map([[4321, "https://hung--4321.getbb.app"], [5173, "https://hung--5173.getbb.app"]]),
+    );
+    expect(merged.get(4321)).toBe("https://hung--4321.getbb.app");
+    expect(merged.get(5173)).toBe("https://hung--5173.getbb.app");
+  });
+});
+
+describe("listedShareUrls", () => {
+  it("merges Connect shares over preview URLs and caches them", async () => {
+    let calls = 0;
+    const list = async () => {
+      calls += 1;
+      return {
+        hostId: "host_1",
+        urlsByPort: new Map([[4321, "https://hung--4321.getbb.app"]]),
+      };
+    };
+    const preview = new Map([[5173, "https://hung--5173.getbb.app"]]);
+    const first = await listedShareUrls(preview, list, 1_000);
+    const second = await listedShareUrls(preview, list, 10_000);
+    expect(calls).toBe(1);
+    expect(first.get(4321)).toBe("https://hung--4321.getbb.app");
+    expect(first.get(5173)).toBe("https://hung--5173.getbb.app");
+    expect(second.get(4321)).toBe("https://hung--4321.getbb.app");
+  });
+
+  it("uses a URL stamped by rememberShareUrl without listing again", async () => {
+    rememberShareUrl(4321, "https://hung--4321.getbb.app");
+    let calls = 0;
+    const urls = await listedShareUrls(new Map(), async () => {
+      calls += 1;
+      return { hostId: null, urlsByPort: new Map() };
+    }, Date.now());
+    expect(calls).toBe(0);
+    expect(urls.get(4321)).toBe("https://hung--4321.getbb.app");
   });
 });
