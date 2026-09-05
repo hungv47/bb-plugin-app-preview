@@ -1,5 +1,6 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { ENVIRONMENT_LIFECYCLES } from "./workspace-error.js";
 
 export const previewStatusSchema = z.enum([
   "idle",
@@ -31,6 +32,7 @@ export const workspaceSchema = z.object({
   path: z.string(),
   branch: z.string().nullable(),
   isWorktree: z.boolean(),
+  environmentStatus: z.enum(ENVIRONMENT_LIFECYCLES),
 });
 
 export const previewSchema = z.object({

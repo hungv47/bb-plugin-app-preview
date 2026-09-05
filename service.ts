@@ -19,6 +19,11 @@ import {
   upsertPreview,
   type PreviewRow,
 } from "./store.js";
+import {
+  asUserFacingError,
+  environmentPreviewBlocker,
+  type EnvironmentLifecycle,
+} from "./workspace-error.js";
 
 export type { InspectResult };
 
@@ -33,6 +38,7 @@ type WorkspaceInfo = {
   path: string;
   branch: string | null;
   isWorktree: boolean;
+  environmentStatus: EnvironmentLifecycle;
   prefer: string;
 };
 
@@ -43,7 +49,8 @@ function now(): number {
 }
 
 function asErrorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return asUserFacingError(message);
 }
 
 function openUrlFor(row: PreviewRow | null): string | null {
@@ -90,6 +97,7 @@ function publicWorkspace(workspace: WorkspaceInfo): NonNullable<InspectResult["w
     path: workspace.path,
     branch: workspace.branch,
     isWorktree: workspace.isWorktree,
+    environmentStatus: workspace.environmentStatus,
   };
 }
 
@@ -159,6 +167,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       });
     } catch (cause) {
       bb.log.warn(`could not close in-app browser: ${asErrorMessage(cause)}`);
+      return;
     }
     row.browserTabId = null;
     openedUrls.delete(row.environmentId);
@@ -191,30 +200,39 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       throw new Error("This thread has no workspace to preview.");
     }
     const env = await bb.sdk.environments.get({ environmentId: thread.environmentId });
-    if (env.path === null || env.path === "") {
+    const path = env.path ?? "";
+    if (env.status === "ready" && path === "") {
       throw new Error("The workspace path is not ready yet.");
     }
     let branch = env.branchName;
-    try {
-      const status = await bb.sdk.environments.status({ environmentId: env.id });
-      if (status.outcome === "available") {
-        branch = status.workspace.branch.currentBranch ?? branch;
+    if (env.status === "ready" && path !== "") {
+      try {
+        const status = await bb.sdk.environments.status({ environmentId: env.id });
+        if (status.outcome === "available") {
+          branch = status.workspace.branch.currentBranch ?? branch;
+        }
+      } catch {
+        // Branch from the environment record is enough.
       }
-    } catch {
-      // Branch from the environment record is enough.
     }
     const workspace = {
       environmentId: env.id,
       hostId: env.hostId,
-      path: env.path,
+      path,
       branch,
       isWorktree: env.isWorktree,
+      environmentStatus: env.status,
       prefer: [thread.title, thread.titleFallback]
         .filter((value): value is string => value !== null && value !== "")
         .join(" "),
     };
     threadEnvironments.set(threadId, workspace.environmentId);
     return workspace;
+  }
+
+  function requireReadyWorkspace(workspace: WorkspaceInfo): void {
+    const blocker = environmentPreviewBlocker(workspace.environmentStatus);
+    if (blocker !== null) throw new Error(blocker);
   }
 
   async function detectWorkspace(workspace: WorkspaceInfo): Promise<{
@@ -237,6 +255,54 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         relativeCwd: item.relativeCwd,
       })),
     };
+  }
+
+  async function detectIfPossible(workspace: WorkspaceInfo): Promise<{
+    detection: InspectResult["detection"];
+    candidates: InspectResult["candidates"];
+  }> {
+    if (workspace.path === "") {
+      return { detection: null, candidates: [] };
+    }
+    try {
+      const detected = await detectWorkspace(workspace);
+      return { detection: detected.detection, candidates: detected.candidates };
+    } catch (cause) {
+      bb.log.warn(`could not detect apps: ${asErrorMessage(cause)}`);
+      return { detection: null, candidates: [] };
+    }
+  }
+
+  function findPreviewRow(threadId: string): PreviewRow | null {
+    const environmentId = threadEnvironments.get(threadId);
+    if (environmentId !== undefined) {
+      const row = getPreview(db, environmentId);
+      if (row !== null) return row;
+    }
+    return (
+      listActivePreviews(db).find((candidate) => candidate.threadId === threadId) ??
+      listAllPreviews(db).find((candidate) => candidate.threadId === threadId) ??
+      null
+    );
+  }
+
+  async function teardownPreview(row: PreviewRow): Promise<void> {
+    if (row.terminalId !== null) {
+      try {
+        await bb.sdk.terminals.close({ terminalId: row.terminalId, mode: "force" });
+      } catch (cause) {
+        bb.log.warn(`could not close preview terminal: ${asErrorMessage(cause)}`);
+      }
+    }
+    await closePreviewBrowser(row);
+    row.status = "idle";
+    row.terminalId = null;
+    row.localUrl = null;
+    row.shareUrl = null;
+    row.error = null;
+    row.logTail = "";
+    save(row);
+    reconcileDeclaredPorts();
   }
 
   function pickDetection(
@@ -372,9 +438,10 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       const workspace = await resolveWorkspace(threadId);
       return await enqueue(workspace.environmentId, async () => {
         knownHosts.add(workspace.hostId);
-        const { detection, candidates } = await detectWorkspace(workspace);
+        const blocker = environmentPreviewBlocker(workspace.environmentStatus);
+        const { detection, candidates } = await detectIfPossible(workspace);
         let row = getPreview(db, workspace.environmentId);
-        if (row !== null && row.terminalId !== null) {
+        if (blocker === null && row !== null && row.terminalId !== null) {
           row = await refreshLogs(row);
           await syncPreviewBrowser(row);
           save(row);
@@ -385,7 +452,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
           detection,
           candidates,
           preview: row === null ? idlePreview() : previewFromRow(row),
-          error: null,
+          error: blocker,
         };
       });
     } catch (cause) {
@@ -403,6 +470,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
     try {
       const workspace = await resolveWorkspace(threadId);
       return await enqueue(workspace.environmentId, async () => {
+        requireReadyWorkspace(workspace);
         knownHosts.add(workspace.hostId);
         const existing = getPreview(db, workspace.environmentId);
         if (
@@ -492,13 +560,13 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       return await enqueue(workspace.environmentId, async () => {
         const row = getPreview(db, workspace.environmentId);
         if (row === null || row.terminalId === null) {
-          const { detection, candidates } = await detectWorkspace(workspace);
+          const { detection, candidates } = await detectIfPossible(workspace);
           return {
             workspace: publicWorkspace(workspace),
             detection,
             candidates,
             preview: row === null ? idlePreview() : previewFromRow(row),
-            error: null,
+            error: environmentPreviewBlocker(workspace.environmentStatus),
           };
         }
         row.status = "stopping";
@@ -509,7 +577,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
           row.status = "error";
           row.error = `Could not stop the preview process: ${asErrorMessage(cause)}`;
           save(row);
-          const { detection, candidates } = await detectWorkspace(workspace);
+          const { detection, candidates } = await detectIfPossible(workspace);
           return {
             workspace: publicWorkspace(workspace),
             detection,
@@ -527,22 +595,35 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         row.logTail = "";
         save(row);
         reconcileDeclaredPorts();
-        const { detection, candidates } = await detectWorkspace(workspace);
+        const { detection, candidates } = await detectIfPossible(workspace);
         return {
           workspace: publicWorkspace(workspace),
           detection,
           candidates,
           preview: previewFromRow(row),
-          error: null,
+          error: environmentPreviewBlocker(workspace.environmentStatus),
         };
       });
     } catch (cause) {
+      const row = findPreviewRow(threadId);
+      if (row !== null) {
+        await enqueue(row.environmentId, async () => {
+          await teardownPreview(row);
+        });
+      }
       const failed = await inspect(threadId);
       return { ...failed, error: asErrorMessage(cause) };
     }
   }
 
   async function restart(threadId: string, options: StartOptions = {}): Promise<InspectResult> {
+    try {
+      const workspace = await resolveWorkspace(threadId);
+      requireReadyWorkspace(workspace);
+    } catch (cause) {
+      const failed = await inspect(threadId);
+      return { ...failed, error: asErrorMessage(cause) };
+    }
     const stopped = await stop(threadId);
     if (stopped.preview?.terminalId !== null && stopped.preview?.terminalId !== undefined) {
       return stopped;

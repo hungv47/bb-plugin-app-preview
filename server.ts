@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { rpcContract } from "./contract.js";
 import { createPreviewService, sleep, type InspectResult } from "./service.js";
+import { environmentPreviewBlocker } from "./workspace-error.js";
 
 function parseTimeoutMs(raw: string): number {
   const seconds = Number.parseInt(raw, 10);
@@ -49,6 +50,9 @@ function formatInspect(result: InspectResult): string {
     lines.push(`Workspace: ${result.workspace.path}`);
     if (result.workspace.branch !== null) lines.push(`Branch: ${result.workspace.branch}`);
     if (result.workspace.isWorktree) lines.push("Kind: worktree");
+    if (environmentPreviewBlocker(result.workspace.environmentStatus) !== null) {
+      lines.push(`Workspace status: ${result.workspace.environmentStatus}`);
+    }
   }
   if (result.detection !== null) {
     if (!result.detection.found) {

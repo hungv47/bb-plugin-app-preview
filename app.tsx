@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { formatHomePathForDisplay, cn } from "@/lib/utils";
+import { environmentPreviewBlocker } from "./workspace-error";
 
 function isInspect(value: unknown): value is InspectResult {
   return typeof value === "object" && value !== null && "workspace" in value;
@@ -154,7 +155,12 @@ function PreviewPanel({ threadId }: { threadId: string }) {
   const displayError = error ?? preview?.error ?? null;
   const ready =
     preview?.status === "running" && preview.openUrl !== null && preview.openUrl !== undefined;
-  const canStart = workspace !== null && (command.trim() !== "" || (detection?.command ?? "") !== "");
+  const workspaceBlocked =
+    workspace !== null && environmentPreviewBlocker(workspace.environmentStatus) !== null;
+  const canStart =
+    workspace !== null &&
+    !workspaceBlocked &&
+    (command.trim() !== "" || (detection?.command ?? "") !== "");
 
   const openPreview = () => {
     if (preview?.status !== "running" || preview.openUrl === null || preview.openUrl === undefined) {
@@ -202,6 +208,9 @@ function PreviewPanel({ threadId }: { threadId: string }) {
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {workspace.branch !== null ? <span>{workspace.branch}</span> : null}
               {workspace.isWorktree ? <span>worktree</span> : null}
+              {workspaceBlocked ? (
+                <span>{workspace.environmentStatus}</span>
+              ) : null}
               {preview !== null ? <StatusBadge status={preview.status} /> : null}
             </div>
           </div>
@@ -369,7 +378,7 @@ function PreviewPanel({ threadId }: { threadId: string }) {
         <Button
           variant="outline"
           size="sm"
-          disabled={busy || workspace === null}
+          disabled={busy || workspace === null || workspaceBlocked}
           onClick={() => void run("restart", extras)}
         >
           <Icon name="RotateCcw" className="size-4" />
