@@ -48,6 +48,73 @@ describe("parseReadyHint", () => {
   it("does not treat a compiled-in-Nms line as ready", () => {
     expect(parseReadyHint("webpack compiled successfully in 3000ms", 3000)).toBeNull();
   });
+
+  it("prefers Vite Local over an earlier API URL when fallback matches neither", () => {
+    const hint = parseReadyHint(
+      [
+        "e-reader-preview: API → http://127.0.0.1:8650",
+        "e-reader-preview: UI  → http://127.0.0.1:5173  (/api → :8650)",
+        "  ➜  Local:   http://127.0.0.1:5173/",
+      ].join("\n"),
+      3000,
+    );
+    expect(hint?.port).toBe(5173);
+    expect(hint?.localUrl).toBe("http://127.0.0.1:5173/");
+  });
+
+  it("prefers a URL whose port equals the fallback port", () => {
+    const hint = parseReadyHint(
+      [
+        "API → http://127.0.0.1:8650",
+        "  ➜  Local:   http://127.0.0.1:5173/",
+      ].join("\n"),
+      8650,
+    );
+    expect(hint?.port).toBe(8650);
+    expect(hint?.localUrl).toBe("http://127.0.0.1:8650");
+  });
+
+  it("prefers a UI line over an API line when neither is Local", () => {
+    const hint = parseReadyHint(
+      ["API → http://127.0.0.1:8650", "UI → http://127.0.0.1:5173"].join("\n"),
+      3000,
+    );
+    expect(hint?.port).toBe(5173);
+    expect(hint?.localUrl).toBe("http://127.0.0.1:5173");
+  });
+
+  it("prefers the mixed UI/API banner over an earlier API URL without a Local line", () => {
+    const hint = parseReadyHint(
+      [
+        "e-reader-preview: API → http://127.0.0.1:8650",
+        "e-reader-preview: UI  → http://127.0.0.1:5173  (/api → :8650)",
+      ].join("\n"),
+      3000,
+    );
+    expect(hint?.port).toBe(5173);
+    expect(hint?.localUrl).toBe("http://127.0.0.1:5173");
+  });
+
+  it("prefers a later bare loopback URL when ranks are otherwise equal", () => {
+    const hint = parseReadyHint(
+      ["http://127.0.0.1:8650", "http://127.0.0.1:5173"].join("\n"),
+      3000,
+    );
+    expect(hint?.port).toBe(5173);
+    expect(hint?.localUrl).toBe("http://127.0.0.1:5173");
+  });
+
+  it("prefers Local over a bare UI-looking URL on the same port", () => {
+    const hint = parseReadyHint(
+      [
+        "UI → http://127.0.0.1:5173",
+        "  ➜  Local:   http://127.0.0.1:5173/",
+      ].join("\n"),
+      3000,
+    );
+    expect(hint?.port).toBe(5173);
+    expect(hint?.localUrl).toBe("http://127.0.0.1:5173/");
+  });
 });
 
 describe("shareUrlForPort", () => {

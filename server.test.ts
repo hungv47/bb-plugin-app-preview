@@ -301,6 +301,216 @@ describe("plugin inspect", () => {
     await harness.lifecycle.dispose();
   });
 
+  it("picks the Vite Local port for openUrl when logs also show an API URL", async () => {
+    const dualLog = [
+      "e-reader-preview: API → http://127.0.0.1:8650",
+      "e-reader-preview: UI  → http://127.0.0.1:5173  (/api → :8650)",
+      "  ➜  Local:   http://127.0.0.1:5173/",
+    ].join("\n");
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "app-preview",
+      sdk: {
+        threads: {
+          get: async () =>
+            makeThreadResponse({
+              id: "thr_1",
+              environmentId: "env_1",
+              projectId: "proj_1",
+            }),
+        },
+        environments: {
+          get: async () => environment(),
+        },
+        hosts: {
+          directory: async () => ({
+            directory: "/repo",
+            parent: null,
+            entries: [
+              { name: "package.json", kind: "file" as const, path: "/repo/package.json" },
+            ],
+          }),
+          pathsExist: async ({ paths }: { paths: string[] }) => ({
+            existence: Object.fromEntries(
+              paths.map((path) => [path, path.endsWith("package.json")]),
+            ),
+          }),
+        },
+        files: {
+          read: async () => ({
+            content: JSON.stringify({
+              scripts: { start: "node server.js" },
+              dependencies: { express: "4.0.0" },
+            }),
+            contentEncoding: "utf8" as const,
+            path: "/repo/package.json",
+            sha256: "abc",
+            sizeBytes: 42,
+          }),
+        },
+        terminals: {
+          create: async () => ({
+            closeReason: null,
+            cols: 120,
+            createdAt: 1,
+            environmentId: "env_1",
+            exitCode: null,
+            hostId: "host_1",
+            id: "term_1",
+            initialCwd: "/repo",
+            lastUserInputAt: null,
+            rows: 32,
+            status: "running" as const,
+            threadId: "thr_1",
+            title: "Preview",
+            updatedAt: 1,
+          }),
+          get: async () => ({
+            closeReason: null,
+            cols: 120,
+            createdAt: 1,
+            environmentId: "env_1",
+            exitCode: null,
+            hostId: "host_1",
+            id: "term_1",
+            initialCwd: "/repo",
+            lastUserInputAt: null,
+            rows: 32,
+            status: "running" as const,
+            threadId: "thr_1",
+            title: "Preview",
+            updatedAt: 1,
+          }),
+          output: async () => ({
+            chunks: [
+              {
+                dataBase64: Buffer.from(dualLog).toString("base64"),
+              },
+            ],
+            nextSeq: 1,
+            truncated: false,
+          }),
+          close: async () => {},
+        },
+      },
+    });
+    await plugin(bb);
+    const started = await harness.behavior.callRpc("start", { threadId: "thr_1" });
+    expect(started.preview.status).toBe("running");
+    expect(started.preview.port).toBe(5173);
+    expect(started.preview.openUrl).toBe("http://127.0.0.1:5173/");
+    await harness.lifecycle.dispose();
+  });
+
+  it("settles from an early API URL to Vite Local and swaps the connect share", async () => {
+    const apiOnlyLog = "e-reader-preview: API → http://127.0.0.1:8650";
+    const dualLog = [
+      "e-reader-preview: API → http://127.0.0.1:8650",
+      "e-reader-preview: UI  → http://127.0.0.1:5173  (/api → :8650)",
+      "  ➜  Local:   http://127.0.0.1:5173/",
+    ].join("\n");
+    let outputCalls = 0;
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "app-preview",
+      sharedPortTunnelIdentities: {
+        host_1: { label: "hung", baseDomain: "getbb.app" },
+      },
+      sdk: {
+        threads: {
+          get: async () =>
+            makeThreadResponse({
+              id: "thr_1",
+              environmentId: "env_1",
+              projectId: "proj_1",
+            }),
+        },
+        environments: {
+          get: async () => environment(),
+        },
+        hosts: {
+          directory: async () => ({
+            directory: "/repo",
+            parent: null,
+            entries: [
+              { name: "package.json", kind: "file" as const, path: "/repo/package.json" },
+            ],
+          }),
+          pathsExist: async ({ paths }: { paths: string[] }) => ({
+            existence: Object.fromEntries(
+              paths.map((path) => [path, path.endsWith("package.json")]),
+            ),
+          }),
+        },
+        files: {
+          read: async () => ({
+            content: JSON.stringify({
+              scripts: { start: "node server.js" },
+              dependencies: { express: "4.0.0" },
+            }),
+            contentEncoding: "utf8" as const,
+            path: "/repo/package.json",
+            sha256: "abc",
+            sizeBytes: 42,
+          }),
+        },
+        terminals: {
+          create: async () => ({
+            closeReason: null,
+            cols: 120,
+            createdAt: 1,
+            environmentId: "env_1",
+            exitCode: null,
+            hostId: "host_1",
+            id: "term_1",
+            initialCwd: "/repo",
+            lastUserInputAt: null,
+            rows: 32,
+            status: "running" as const,
+            threadId: "thr_1",
+            title: "Preview",
+            updatedAt: 1,
+          }),
+          get: async () => ({
+            closeReason: null,
+            cols: 120,
+            createdAt: 1,
+            environmentId: "env_1",
+            exitCode: null,
+            hostId: "host_1",
+            id: "term_1",
+            initialCwd: "/repo",
+            lastUserInputAt: null,
+            rows: 32,
+            status: "running" as const,
+            threadId: "thr_1",
+            title: "Preview",
+            updatedAt: 1,
+          }),
+          output: async () => {
+            outputCalls += 1;
+            const text = outputCalls === 1 ? apiOnlyLog : dualLog;
+            return {
+              chunks: [
+                {
+                  dataBase64: Buffer.from(text).toString("base64"),
+                },
+              ],
+              nextSeq: outputCalls,
+              truncated: false,
+            };
+          },
+          close: async () => {},
+        },
+      },
+    });
+    await plugin(bb);
+    const started = await harness.behavior.callRpc("start", { threadId: "thr_1" });
+    expect(started.preview.status).toBe("running");
+    expect(started.preview.port).toBe(5173);
+    expect(started.preview.openUrl).toBe("https://hung--5173.getbb.app");
+    expect(outputCalls).toBeGreaterThan(1);
+    await harness.lifecycle.dispose();
+  });
+
   it("does not open the in-app browser by default, then opens after switching to agent mode", async () => {
     const tabs: Array<{ id: string; kind: string; url?: string }> = [{ id: "new", kind: "new-tab" }];
     let revision = 1;

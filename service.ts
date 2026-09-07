@@ -403,8 +403,12 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         row.error = `${reason} Command: ${row.command}`;
         return row;
       }
-      const hint = parseReadyHint(row.logTail, row.port);
+      const detectedPort = detectionFromRow(row)?.port ?? row.port;
+      const previousPort = row.port;
+      const hadConnectShare = row.shareUrl !== null && isConnectShareUrl(row.shareUrl);
+      const hint = parseReadyHint(row.logTail, detectedPort);
       if (hint !== null) {
+        const portChanged = previousPort !== null && previousPort !== hint.port;
         row.port = hint.port;
         row.localUrl = hint.localUrl;
         try {
@@ -416,7 +420,22 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         } catch (cause) {
           bb.log.warn(`declareSharedPorts(${row.hostId}) failed: ${asErrorMessage(cause)}`);
         }
-        if (shouldRefreshPreviewShare(row.status, row.shareUrl)) {
+        if (portChanged && hadConnectShare) {
+          // Share the new port first; only drop the old expose after success so
+          // a failed swap keeps the previous shareUrl (both may be live briefly).
+          const share = await tryShareUrl(row.hostId, hint.port);
+          if (share !== null) {
+            forgetShareUrl(previousPort);
+            try {
+              await unexposeConnectShare(row.hostId, previousPort);
+            } catch (cause) {
+              bb.log.warn(
+                `could not unexpose previous preview port ${previousPort}: ${asErrorMessage(cause)}`,
+              );
+            }
+            row.shareUrl = share;
+          }
+        } else if (shouldRefreshPreviewShare(row.status, row.shareUrl)) {
           const share = await tryShareUrl(row.hostId, hint.port);
           if (share !== null) row.shareUrl = share;
         }
@@ -440,7 +459,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
   async function waitForPreview(row: PreviewRow): Promise<PreviewRow> {
     let current = await refreshLogs(row);
     save(current);
-    if (current.status === "running" || current.status === "exited" || current.status === "error") {
+    if (current.status === "exited" || current.status === "error") {
       return current;
     }
     if (current.error !== null && current.error.startsWith("Could not read preview logs:")) {
@@ -449,14 +468,30 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       return current;
     }
     const signal = new AbortController().signal;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    // Poll while still starting (up to ~2s), then briefly settle after the first
+    // ready hint so a later Vite Local line can win over an earlier API URL.
+    const maxStartingAttempts = 8;
+    const settleAttempts = 4;
+    let startingAttempts = 0;
+    let settleRemaining = current.status === "running" ? settleAttempts : 0;
+    while (
+      (current.status === "starting" && startingAttempts < maxStartingAttempts) ||
+      (current.status === "running" && settleRemaining > 0)
+    ) {
       await sleep(250, signal);
       const latest = getPreview(db, current.environmentId);
       if (latest === null || latest.terminalId === null) return current;
+      const wasStarting = current.status === "starting";
       current = await refreshLogs(latest);
       save(current);
-      if (current.status === "running" || current.status === "exited" || current.status === "error") {
+      if (current.status === "exited" || current.status === "error") {
         return current;
+      }
+      if (wasStarting) startingAttempts += 1;
+      if (current.status === "running") {
+        // First transition to running arms the settle window; later ticks count it down.
+        if (settleRemaining === 0 && wasStarting) settleRemaining = settleAttempts;
+        else if (settleRemaining > 0) settleRemaining -= 1;
       }
     }
     return current;
