@@ -1,6 +1,6 @@
 # App Preview
 
-BB plugin that finds the app in the current thread's worktree, starts it in a thread terminal, and opens it in BB's in-app browser. Stop closes that browser. No extra click.
+BB plugin that finds the app in the current thread's worktree and starts it in a thread terminal. A setting chooses whether you open the in-app browser yourself, or agents open it when the app is ready. Stop closes that browser in agent mode.
 
 ![Starting a worktree app from the Preview panel](demo.gif)
 
@@ -44,7 +44,7 @@ Add `--json` when a later step needs the structured result. Pass `--thread <id>`
 ## Settings
 
 - **Install dependencies before start** (default on)
-- **Automatically open and close the in-app browser** (default on). When off, start does not open a tab and stop does not close one. Use **Open in browser**.
+- **Open the in-app browser** (`manual` or `agent`, default `manual`). `manual`: start leaves the tab alone; use **Open in browser**. `agent`: after start, the tab opens once the app is ready, and stop closes it. Agents follow this setting. Upgrades default to `manual` regardless of the old auto-open toggle.
 - **Seconds to wait for a ready URL** (default 90)
 
 `bb plugin config app-preview`

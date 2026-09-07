@@ -5,6 +5,7 @@ import {
   makeThreadResponse,
 } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
+import { OPEN_PREVIEW_AGENT } from "./open-mode.js";
 
 function environment() {
   return {
@@ -186,6 +187,7 @@ describe("plugin inspect", () => {
     let closed: string | null = null;
     const { bb, harness } = createFakePluginHost({
       pluginId: "app-preview",
+      settings: { openPreview: OPEN_PREVIEW_AGENT },
       sdk: {
         threads: {
           get: async () =>
@@ -299,13 +301,12 @@ describe("plugin inspect", () => {
     await harness.lifecycle.dispose();
   });
 
-  it("leaves the in-app browser alone when auto-open is off", async () => {
+  it("does not open the in-app browser by default, then opens after switching to agent mode", async () => {
     const tabs: Array<{ id: string; kind: string; url?: string }> = [{ id: "new", kind: "new-tab" }];
     let revision = 1;
     let tabUpdates = 0;
     const { bb, harness } = createFakePluginHost({
       pluginId: "app-preview",
-      settings: { autoOpenBrowser: false },
       sdk: {
         threads: {
           get: async () =>
@@ -410,9 +411,12 @@ describe("plugin inspect", () => {
     expect(started.preview.openUrl).toBe("http://localhost:5173/");
     expect(tabUpdates).toBe(0);
     expect(tabs.some((tab) => tab.kind === "browser")).toBe(false);
+    await harness.behavior.setSettings({ openPreview: OPEN_PREVIEW_AGENT });
+    await harness.behavior.callRpc("start", { threadId: "thr_1" });
+    expect(tabs.some((tab) => tab.kind === "browser")).toBe(true);
     const stopped = await harness.behavior.callRpc("stop", { threadId: "thr_1" });
     expect(stopped.preview.status).toBe("idle");
-    expect(tabUpdates).toBe(0);
+    expect(tabs.some((tab) => tab.kind === "browser")).toBe(false);
     await harness.lifecycle.dispose();
   });
 
@@ -654,6 +658,7 @@ describe("plugin inspect", () => {
     let revision = 1;
     const { bb, harness } = createFakePluginHost({
       pluginId: "app-preview",
+      settings: { openPreview: OPEN_PREVIEW_AGENT },
       sdk: {
         threads: {
           get: async () =>
@@ -838,5 +843,27 @@ describe("plugin inspect", () => {
       child.kill("SIGKILL");
       await harness.lifecycle.dispose();
     }
+  });
+
+  it("injects live open-mode instructions and prefers preview_app", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    const previewApp = harness.inspection.registrations.agentTools.find(
+      (tool) => tool.name === "preview_app",
+    );
+    expect(previewApp?.instructions).toMatch(/preview_app/);
+    expect(previewApp?.instructions).toMatch(/open-mode/);
+    expect(previewApp?.instructions).not.toMatch(/after finishing UI work/);
+    expect(previewApp?.instructions).not.toMatch(/Call start once/);
+    const provider = harness.inspection.registrations.instructionProvider;
+    expect(provider).not.toBeNull();
+    expect(provider!({ threadId: "thr_1", projectId: "proj_1" })).toMatch(/open mode is manual/);
+    await harness.behavior.setSettings({ openPreview: OPEN_PREVIEW_AGENT });
+    expect(provider!({ threadId: "thr_1", projectId: "proj_1" })).toMatch(/open mode is agent/);
+    expect(harness.inspection.registrations.settingsDescriptors).toHaveProperty("openPreview");
+    expect(harness.inspection.registrations.settingsDescriptors).not.toHaveProperty(
+      "autoOpenBrowser",
+    );
+    await harness.lifecycle.dispose();
   });
 });

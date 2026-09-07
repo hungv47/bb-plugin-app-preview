@@ -3,6 +3,12 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { PORTS_CHANGED, rpcContract } from "./contract.js";
 import { formatKillOutcomes, formatPortsTable } from "./ports.js";
 import { createPortsActions } from "./ports-actions.js";
+import {
+  OPEN_PREVIEW_MANUAL,
+  OPEN_PREVIEW_OPTIONS,
+  isAgentOpenPreview,
+  openPreviewAgentInstructions,
+} from "./open-mode.js";
 import { createPreviewService, sleep, type InspectResult } from "./service.js";
 import { environmentPreviewBlocker } from "./workspace-error.js";
 
@@ -119,12 +125,13 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Install dependencies before start",
       default: true,
     },
-    autoOpenBrowser: {
-      type: "boolean",
-      label: "Automatically open and close the in-app browser",
+    openPreview: {
+      type: "select",
+      label: "Open the in-app browser",
+      options: [...OPEN_PREVIEW_OPTIONS],
       description:
-        "When off, start does not open a browser tab and stop does not close one. Use Open in browser yourself.",
-      default: true,
+        "manual: start leaves the tab alone. Use Open in browser. agent: after start, the in-app browser opens once the app is ready, and stop closes it. Agents follow this setting.",
+      default: OPEN_PREVIEW_MANUAL,
     },
     readyTimeoutSeconds: {
       type: "string",
@@ -133,16 +140,18 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
   const values = await settings.get();
+  let openPreview = values.openPreview;
   const serviceSettings = {
     autoInstall: values.autoInstall,
     readyTimeoutMs: parseTimeoutMs(values.readyTimeoutSeconds),
-    autoOpenBrowser: values.autoOpenBrowser,
+    autoOpenBrowser: isAgentOpenPreview(openPreview),
   };
   const service = createPreviewService(bb, serviceSettings);
   settings.onChange((next) => {
+    openPreview = next.openPreview;
     serviceSettings.autoInstall = next.autoInstall;
     serviceSettings.readyTimeoutMs = parseTimeoutMs(next.readyTimeoutSeconds);
-    serviceSettings.autoOpenBrowser = next.autoOpenBrowser;
+    serviceSettings.autoOpenBrowser = isAgentOpenPreview(next.openPreview);
   });
 
   const ports = createPortsActions(service.db, () => {
@@ -315,7 +324,7 @@ export default async function plugin(bb: BbPluginApi) {
     description:
       "Detect, start, stop, or inspect the web app in this thread's worktree so the user can try it from the session.",
     instructions:
-      "Use preview_app to run the worktree app from this session. Prefer it over guessing package.json scripts. After start, the in-app browser opens on its own unless the user turned that setting off. Give the user the Open URL. Stop closes that browser when auto-open is on.",
+      "Use preview_app to run this thread's worktree app. Prefer it over guessing package.json scripts or running bb preview. Start detects. Give the user the Open URL. Follow the live App Preview open-mode line for whether to start.",
     presentation: {
       label: {
         pending: "Checking worktree preview",
@@ -408,7 +417,12 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  bb.agents.contributeInstructions(({ threadId }) => service.runningNote(threadId));
+  bb.agents.contributeInstructions(({ threadId }) =>
+    openPreviewAgentInstructions(
+      openPreview,
+      threadId === undefined || threadId === "" ? null : service.runningNote(threadId),
+    ),
+  );
 
   bb.background.service("preview-ready", {
     async start(signal) {
