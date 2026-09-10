@@ -1,4 +1,4 @@
-import { joinHost, quoteShellArg } from "./paths.js";
+import { isPlainArgvToken, isSafeRelativeCwd, quoteShellArg } from "./paths.js";
 
 export type PackageManager =
   | "npm"
@@ -527,12 +527,42 @@ export function detectApp(
   return detectAll(directories, prefer)[0] ?? emptyDetection(directories[0]?.relativeCwd ?? ".");
 }
 
-export function shellCommand(relativeCwd: string, command: string): string {
-  if (relativeCwd === "" || relativeCwd === ".") return command;
-  return `cd ${quoteShellArg(relativeCwd)} && ${command}`;
+const CD_PREFIX = /^\s*cd\s+(?:--\s+)?("[^"]+"|'[^']+'|\S+)\s*&&\s*([\s\S]+)$/;
+
+export type LaunchPlan = {
+  relativeCwd: string;
+  installArgv: string[] | null;
+  startArgv: string[];
+};
+
+export function parseLaunchArgv(command: string): string[] {
+  const trimmed = command.trim();
+  if (trimmed === "") throw new Error("No start command to run.");
+  if (/[\n\r\0]/.test(command)) {
+    throw new Error("Start command cannot contain newlines.");
+  }
+  const tokens = trimmed.split(/\s+/);
+  for (const token of tokens) {
+    if (isPlainArgvToken(token)) continue;
+    throw new Error(
+      "Start command may only use plain arguments (no substitutions, quotes, or shell operators).",
+    );
+  }
+  return tokens;
 }
 
-const CD_PREFIX = /^\s*cd\s+("[^"]+"|'[^']+'|\S+)\s*&&\s*([\s\S]+)$/;
+export function formatLaunchCommand(plan: LaunchPlan): string {
+  const recipe = plan.startArgv.map(quoteShellArg).join(" ");
+  const withInstall =
+    plan.installArgv === null || plan.installArgv.length === 0
+      ? recipe
+      : `${plan.installArgv.map(quoteShellArg).join(" ")} && ${recipe}`;
+  if (plan.relativeCwd === "" || plan.relativeCwd === ".") return withInstall;
+  if (!isSafeRelativeCwd(plan.relativeCwd)) {
+    throw new Error("App directory must be a relative path without .. or shell characters.");
+  }
+  return `cd -- ${quoteShellArg(`./${plan.relativeCwd}`)} && ${withInstall}`;
+}
 
 /** Peel `cd dir && rest` so callers can pass cwd and the inner command separately. */
 export function splitCdPrefix(command: string): { relativeCwd: string | null; command: string } {
@@ -540,7 +570,8 @@ export function splitCdPrefix(command: string): { relativeCwd: string | null; co
   if (match === null || match[1] === undefined || match[2] === undefined) {
     return { relativeCwd: null, command: command.trim() };
   }
-  const relativeCwd = match[1].replace(/^["']|["']$/g, "").replace(/\\/g, "/");
+  let relativeCwd = match[1].replace(/^["']|["']$/g, "").replace(/\\/g, "/");
+  if (relativeCwd.startsWith("./")) relativeCwd = relativeCwd.slice(2) || ".";
   if (relativeCwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(relativeCwd)) {
     return { relativeCwd: null, command: command.trim() };
   }
@@ -598,14 +629,13 @@ export function withIpv4ListenHost(command: string, framework: string | null): s
   return `${command} ${flag}`;
 }
 
-export function launchCommand(
+export function launchPlan(
   detection: Detection,
   options: {
     autoInstall: boolean;
     commandOverride?: string;
-    workspacePath?: string;
   },
-): string {
+): LaunchPlan {
   const split = splitCdPrefix(options.commandOverride ?? "");
   let inner = detection.command;
   if (options.commandOverride !== undefined && options.commandOverride.trim() !== "") {
@@ -614,19 +644,24 @@ export function launchCommand(
   if (inner === undefined || inner === null || inner === "") {
     throw new Error("No start command to run.");
   }
-  inner = withIpv4ListenHost(inner, detection.framework);
   const relativeCwd = split.relativeCwd ?? detection.relativeCwd;
-  const withInstall =
-    options.autoInstall && detection.installCommand !== null
-      ? `${detection.installCommand} && ${inner}`
-      : inner;
-  const workspacePath = options.workspacePath?.replace(/[\\/]+$/, "");
-  if (workspacePath !== undefined && workspacePath !== "") {
-    const abs =
-      relativeCwd === "" || relativeCwd === "."
-        ? workspacePath
-        : joinHost(workspacePath, relativeCwd);
-    return `cd ${quoteShellArg(abs)} && ${withInstall}`;
+  if (!isSafeRelativeCwd(relativeCwd)) {
+    throw new Error("App directory must be a relative path without .. or shell characters.");
   }
-  return shellCommand(relativeCwd, withInstall);
+  const startArgv = parseLaunchArgv(withIpv4ListenHost(inner, detection.framework));
+  const installArgv =
+    options.autoInstall && detection.installCommand !== null
+      ? parseLaunchArgv(detection.installCommand)
+      : null;
+  return { relativeCwd, installArgv, startArgv };
+}
+
+export function launchCommand(
+  detection: Detection,
+  options: {
+    autoInstall: boolean;
+    commandOverride?: string;
+  },
+): string {
+  return formatLaunchCommand(launchPlan(detection, options));
 }

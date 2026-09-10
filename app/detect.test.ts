@@ -1,5 +1,17 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectAll, detectApp, launchCommand, parsePortHint, splitCdPrefix, type DirSnapshot } from "./detect.js";
+import {
+  detectAll,
+  detectApp,
+  launchCommand,
+  parseLaunchArgv,
+  parsePortHint,
+  splitCdPrefix,
+  type DirSnapshot,
+} from "./detect.js";
 
 function dir(partial: Partial<DirSnapshot> & { contents: Record<string, string> }): DirSnapshot {
   const names = Object.keys(partial.contents);
@@ -159,6 +171,13 @@ describe("splitCdPrefix", () => {
       command: "bun run dev",
     });
   });
+
+  it("peels cd -- ./dir so a formatted command round-trips", () => {
+    expect(splitCdPrefix("cd -- ./apps/web && pnpm dev")).toEqual({
+      relativeCwd: "apps/web",
+      command: "pnpm dev",
+    });
+  });
 });
 
 describe("launchCommand", () => {
@@ -179,7 +198,7 @@ describe("launchCommand", () => {
       },
       { autoInstall: true },
     );
-    expect(command).toBe("cd apps/web && pnpm install && pnpm dev -- --hostname 127.0.0.1");
+    expect(command).toBe("cd -- ./apps/web && pnpm install && pnpm dev -- --hostname 127.0.0.1");
   });
 
   it("uses an override as the inner command and still installs", () => {
@@ -219,10 +238,11 @@ describe("launchCommand", () => {
       },
       { autoInstall: true, commandOverride: "cd personal/site && bun run dev" },
     );
-    expect(command).toBe("cd personal/site && pnpm install && bun run dev -- --hostname 127.0.0.1");
+    expect(command).toBe("cd -- ./personal/site && pnpm install && bun run dev -- --hostname 127.0.0.1");
   });
 
-  it("cds into the worktree with an absolute path when given one", () => {
+  it("does not interpolate the workspace path into the shell command", () => {
+    const workspacePath = "/tmp/$(printf injected)/`printf injected`/$HOME";
     const command = launchCommand(
       {
         found: true,
@@ -240,12 +260,67 @@ describe("launchCommand", () => {
       {
         autoInstall: true,
         commandOverride: "cd forsvn/anzoa/app && bun run dev",
-        workspacePath: "/Users/hungv47/.bb/worktrees/env_x/forsvn",
       },
     );
-    expect(command).toBe(
-      "cd /Users/hungv47/.bb/worktrees/env_x/forsvn/forsvn/anzoa/app && bun run dev -- --hostname 127.0.0.1",
+    expect(command).toBe("cd -- ./forsvn/anzoa/app && bun run dev -- --hostname 127.0.0.1");
+    expect(command).not.toContain(workspacePath);
+    expect(command).not.toContain("$(printf injected)");
+    expect(command).not.toContain("`printf injected`");
+    expect(command).not.toContain("$HOME");
+  });
+
+  it("starts a scoped package directory", () => {
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "vite",
+        frameworkLabel: "Vite",
+        packageManager: "pnpm",
+        command: "pnpm dev",
+        installCommand: null,
+        port: 5173,
+        relativeCwd: "packages/@acme/web",
+        dependencies: ["vite"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false },
     );
+    expect(command).toBe("cd -- ./packages/@acme/web && pnpm dev -- --host 127.0.0.1");
+  });
+
+  it("relative cd stays in the worktree even when CDPATH is set", () => {
+    const root = mkdtempSync(join(tmpdir(), "preview-cd-"));
+    const worktree = join(root, "wt");
+    const decoy = join(root, "decoy");
+    mkdirSync(join(worktree, "apps", "web"), { recursive: true });
+    mkdirSync(join(decoy, "apps", "web"), { recursive: true });
+    writeFileSync(join(worktree, "apps", "web", "marker"), "worktree");
+    writeFileSync(join(decoy, "apps", "web", "marker"), "decoy");
+    const command = launchCommand(
+      {
+        found: true,
+        framework: "vite",
+        frameworkLabel: "Vite",
+        packageManager: "npm",
+        command: "npm run dev",
+        installCommand: null,
+        port: 5173,
+        relativeCwd: "apps/web",
+        dependencies: ["vite"],
+        notes: [],
+        confidence: "high",
+      },
+      { autoInstall: false },
+    );
+    const cd = command.split(" && ")[0];
+    expect(cd).toBe("cd -- ./apps/web");
+    const output = execFileSync("sh", ["-lc", `${cd} && pwd && cat marker`], {
+      cwd: worktree,
+      encoding: "utf8",
+      env: { ...process.env, CDPATH: decoy },
+    });
+    expect(output.trim().endsWith("worktree")).toBe(true);
   });
 
   it("binds Astro to 127.0.0.1 so Connect share can reach it", () => {
@@ -386,5 +461,47 @@ describe("launchCommand", () => {
       { autoInstall: false },
     );
     expect(command).toBe("HOST=127.0.0.1 npm start");
+  });
+
+  it("rejects a relative directory with substitutions", () => {
+    expect(() =>
+      launchCommand(
+        {
+          found: true,
+          framework: "vite",
+          frameworkLabel: "Vite",
+          packageManager: "npm",
+          command: "npm run dev",
+          installCommand: null,
+          port: 5173,
+          relativeCwd: "apps/$(whoami)",
+          dependencies: ["vite"],
+          notes: [],
+          confidence: "high",
+        },
+        { autoInstall: false },
+      ),
+    ).toThrow(/shell characters/);
+  });
+});
+
+describe("parseLaunchArgv", () => {
+  it("splits a reviewed recipe", () => {
+    expect(parseLaunchArgv("pnpm dev -- --hostname 127.0.0.1")).toEqual([
+      "pnpm",
+      "dev",
+      "--",
+      "--hostname",
+      "127.0.0.1",
+    ]);
+  });
+
+  it("rejects substitutions, variables, quotes, and newlines", () => {
+    expect(() => parseLaunchArgv("npm start $(whoami)")).toThrow(/plain arguments/);
+    expect(() => parseLaunchArgv("npm start $HOME")).toThrow(/plain arguments/);
+    expect(() => parseLaunchArgv("npm start `id`")).toThrow(/plain arguments/);
+    expect(() => parseLaunchArgv(`npm start "evil"`)).toThrow(/plain arguments/);
+    expect(() => parseLaunchArgv("npm start\nrm -rf /")).toThrow(/newlines/);
+    expect(() => parseLaunchArgv("npm start; id")).toThrow(/plain arguments/);
   });
 });

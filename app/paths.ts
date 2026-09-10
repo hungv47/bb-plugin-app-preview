@@ -11,10 +11,27 @@ export function joinHost(root: string, ...parts: string[]): string {
   return [trimmedRoot, ...rest].join(sep);
 }
 
+/** Unquoted POSIX token body: letters, digits, and `_./:@%+=-`. */
+export const SHELL_SAFE_TOKEN = /^[A-Za-z0-9_./:@%+=-]+$/;
+const PLAIN_ARGV_TOKEN = /^(?:[A-Za-z_][A-Za-z0-9_]*=)?[A-Za-z0-9_./:@%+=-]+$/;
+const RELATIVE_CWD_PART = /^[A-Za-z0-9._@%+=-]+$/;
+
+/**
+ * POSIX quoting for `sh -lc` (BB command terminals). Safe charset is unquoted;
+ * everything else is single-quoted so `$()`, backticks, and `$VAR` stay literal.
+ */
 export function quoteShellArg(value: string): string {
-  if (value === "") return '""';
-  if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (value.includes("\0")) {
+    throw new Error("Argument cannot contain NUL.");
+  }
+  if (value === "") return "''";
+  if (SHELL_SAFE_TOKEN.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** True for a detection/CLI argv token: optional `NAME=value`, then a shell-safe body. */
+export function isPlainArgvToken(token: string): boolean {
+  return PLAIN_ARGV_TOKEN.test(token);
 }
 
 export function relativeFromRoot(root: string, absolute: string): string {
@@ -28,16 +45,14 @@ export function relativeFromRoot(root: string, absolute: string): string {
   return ".";
 }
 
-/** True for `.` or a relative POSIX path with no `..`, drives, or NULs. */
+/** True for `.` or a relative POSIX path with no `..`, drives, NULs, or shell metacharacters. */
 export function isSafeRelativeCwd(cwd: string): boolean {
   if (cwd === "." || cwd === "") return true;
-  if (cwd.includes("\0") || cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd)) {
+  if (cwd.includes("\0") || cwd.includes("\\") || cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd)) {
     return false;
   }
-  const parts = cwd.replace(/\\/g, "/").split("/");
-  return parts.every(
-    (part) => part !== "" && part !== "." && part !== ".." && !part.includes(":"),
-  );
+  const parts = cwd.split("/");
+  return parts.every((part) => part !== "" && part !== "." && part !== ".." && RELATIVE_CWD_PART.test(part));
 }
 
 export const MARKER_FILES = [

@@ -11,6 +11,8 @@ import {
 import { toast } from "sonner";
 import type { InspectResult } from "./contract";
 import { rpcContract } from "./contract";
+import { ConfirmInteraction } from "./confirm-form";
+import { CONFIRM_RENDERER_ID } from "./confirm-schema";
 import { splitCdPrefix } from "./detect";
 import { sharePortResultSchema } from "./ports-schema";
 import { omitUndefined } from "./rpc-input";
@@ -490,6 +492,10 @@ function PreviewHeaderButton(_props: { threadId: string }) {
 }
 
 export default definePluginApp((app) => {
+  app.slots.pendingInteraction({
+    id: CONFIRM_RENDERER_ID,
+    component: ConfirmInteraction,
+  });
   app.slots.threadPanelAction({
     id: "preview",
     title: "Preview",
