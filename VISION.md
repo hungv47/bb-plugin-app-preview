@@ -9,8 +9,8 @@ Ports lists listening TCP ports on the BB server machine and can kill a listener
 Share exposes a port over bb connect so a phone can hit it. Start binds Node
 dev servers to 127.0.0.1 because Connect forwards to that address, not `[::1]`.
 
-Source lives in this product root. The public host is `hungv47/bb-plugin-app-preview` through
-`_hq/tools/publish-public-mirror.sh`.
+Source lives in this repository (`hungv47/bb-plugin-app-preview`). Tag releases on this origin.
+Do not subtree-push from `hungv47/ipse`.
 
 ## Boundaries
 

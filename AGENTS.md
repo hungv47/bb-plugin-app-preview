@@ -1,11 +1,12 @@
 # App Preview
 
-Hung's BB plugin for starting a worktree app and opening it in BB's in-app browser. Canonical
-source is this product root. Public archive is hungv47/bb-plugin-app-preview.
+Hung's BB plugin for starting a worktree app and opening it in BB's in-app browser.
+Canonical source is this repository: `hungv47/bb-plugin-app-preview`.
+Live clone: `~/ipse-composed/forsvn/app-preview`.
 
 ## Commands
 
-From `forsvn/app-preview/app`:
+From `app/`:
 
 ```bash
 npm install
@@ -19,11 +20,11 @@ Path-install from `app/`. After edits, `bb plugin reload app-preview`.
 ## Layout
 
 - Horsemen and this file at the product root
-- `app/` is the plugin package and the public export source
-- `scripts/publish-mirror.sh` wraps `_hq/tools/publish-public-mirror.sh` for name `app-preview`
+- `app/` is the plugin package
 
 ## Source and publish
 
-Edit in ipse worktrees. The product lives as ordinary files inside hungv47/ipse. Publish only
-through `scripts/publish-mirror.sh` or `_hq/tools/publish-public-mirror.sh` after Hung approves
-push. Nested git is forbidden. Push and `publish-public-mirror.sh push` wait on that approval.
+Edit and tag this origin. Do not run `scripts/publish-mirror.sh` from this clone;
+that wrapper expects ipse `_hq/tools/publish-public-mirror.sh`.
+Marketplace listing is `hungv47/marketplace` branch `submit-app-preview`
+([get-bb/marketplace#194](https://github.com/get-bb/marketplace/pull/194)).
