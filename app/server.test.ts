@@ -5,6 +5,7 @@ import {
   makeThreadResponse,
 } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
+import { confirmPayloadSchema } from "./confirm-schema.js";
 import { OPEN_PREVIEW_AGENT } from "./open-mode.js";
 
 function environment() {
@@ -26,6 +27,19 @@ function environment() {
     updatedAt: 1,
     workspaceProvisionType: "managed-worktree" as const,
   };
+}
+
+async function waitForInteraction(harness: {
+  inspection: {
+    pendingInteractions: readonly { id: string; rendererId: string; payload: unknown }[];
+  };
+}): Promise<{ id: string; rendererId: string; payload: unknown }> {
+  for (let i = 0; i < 50; i += 1) {
+    const pending = harness.inspection.pendingInteractions[0];
+    if (pending !== undefined) return pending;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("no pending interaction");
 }
 
 describe("plugin inspect", () => {
@@ -174,10 +188,91 @@ describe("plugin inspect", () => {
       relativeCwd: "apps/web",
     });
     expect(created.command).toBe(
-      "cd /repo/apps/web && npm install && npm run dev -- --hostname 127.0.0.1",
+      "cd -- ./apps/web && npm install && npm run dev -- --hostname 127.0.0.1",
     );
+    expect(created.command).not.toContain("/repo");
     expect(result.detection.relativeCwd).toBe("apps/web");
     expect(result.preview.status).toBe("starting");
+    await harness.lifecycle.dispose();
+  });
+
+  it("does not put the workspace path into the start command", async () => {
+    const created: { command?: string } = {};
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "app-preview",
+      sdk: {
+        threads: {
+          get: async () =>
+            makeThreadResponse({
+              id: "thr_1",
+              environmentId: "env_1",
+              projectId: "proj_1",
+            }),
+        },
+        environments: {
+          get: async () => ({
+            ...environment(),
+            path: "/tmp/$(whoami)/$HOME",
+          }),
+        },
+        hosts: {
+          directory: async () => ({
+            directory: "/tmp/$(whoami)/$HOME",
+            parent: null,
+            entries: [
+              {
+                name: "package.json",
+                kind: "file" as const,
+                path: "/tmp/$(whoami)/$HOME/package.json",
+              },
+            ],
+          }),
+          pathsExist: async ({ paths }: { paths: string[] }) => ({
+            existence: Object.fromEntries(
+              paths.map((path) => [path, path.endsWith("package.json")]),
+            ),
+          }),
+        },
+        files: {
+          read: async () => ({
+            content: JSON.stringify({
+              scripts: { dev: "vite" },
+              devDependencies: { vite: "6.0.0" },
+            }),
+            contentEncoding: "utf8" as const,
+            path: "/tmp/$(whoami)/$HOME/package.json",
+            sha256: "abc",
+            sizeBytes: 42,
+          }),
+        },
+        terminals: {
+          create: async (args: { start?: { command?: string } }) => {
+            created.command = args.start?.command;
+            return {
+              closeReason: null,
+              cols: 120,
+              createdAt: 1,
+              environmentId: "env_1",
+              exitCode: null,
+              hostId: "host_1",
+              id: "term_1",
+              initialCwd: "/tmp/$(whoami)/$HOME",
+              lastUserInputAt: null,
+              rows: 32,
+              status: "running" as const,
+              threadId: "thr_1",
+              title: "Preview",
+              updatedAt: 1,
+            };
+          },
+        },
+      },
+    });
+    await plugin(bb);
+    await harness.behavior.callRpc("start", { threadId: "thr_1" });
+    expect(created.command).toBe("npm install && npm run dev -- --host 127.0.0.1");
+    expect(created.command).not.toContain("$(whoami)");
+    expect(created.command).not.toContain("$HOME");
     await harness.lifecycle.dispose();
   });
 
@@ -1075,5 +1170,101 @@ describe("plugin inspect", () => {
       "autoOpenBrowser",
     );
     await harness.lifecycle.dispose();
+  });
+
+  it("refuses an arbitrary launch command on preview_app", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    await expect(
+      harness.behavior.callAgentTool("preview_app", {
+        action: "start",
+        command: "touch /tmp/pwned",
+      }),
+    ).rejects.toThrow(/invalid/i);
+    await harness.lifecycle.dispose();
+  });
+
+  it("asks the user to confirm before an agent share or kill", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+
+    const sharePromise = harness.behavior.callAgentTool(
+      "preview_ports",
+      { action: "share", port: 1 },
+      { threadId: "thr_1" },
+    );
+    const sharePending = await waitForInteraction(harness);
+    expect(sharePending.rendererId).toBe("preview-confirm");
+    expect(sharePending.payload).toMatchObject({ action: "share" });
+    const parsedShare = confirmPayloadSchema.safeParse(sharePending.payload);
+    const shareToken = parsedShare.success ? parsedShare.data.confirmationToken : "";
+    harness.behavior.submitInteraction(sharePending.id, { confirmationToken: shareToken });
+    const shared = await sharePromise;
+    expect(shared).toMatchObject({ isError: true });
+    expect(JSON.stringify(shared)).toMatch(/Nothing is listening on :1/);
+
+    const wrongToken = harness.behavior.callAgentTool(
+      "preview_ports",
+      { action: "share", port: 1 },
+      { threadId: "thr_1" },
+    );
+    const wrongPending = await waitForInteraction(harness);
+    harness.behavior.submitInteraction(wrongPending.id, { confirmed: true });
+    const rejected = await wrongToken;
+    expect(rejected).toMatchObject({ isError: true });
+    expect(JSON.stringify(rejected)).toMatch(/token did not match/);
+
+    const killPromise = harness.behavior.callAgentTool(
+      "preview_ports",
+      { action: "kill", targets: ["1"] },
+      { threadId: "thr_1" },
+    );
+    const killPending = await waitForInteraction(harness);
+    harness.behavior.cancelInteraction(killPending.id);
+    const killed = await killPromise;
+    expect(killed).toMatchObject({ isError: true });
+    await harness.lifecycle.dispose();
+  });
+
+  it("does not kill a listener when the agent confirm is cancelled", async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        "require('http').createServer().listen(18793,'127.0.0.1',()=>process.stdout.write('ready'))",
+      ],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("listener did not start")), 5000);
+      child.stdout?.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("ready")) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      child.on("error", reject);
+    });
+    const { bb, harness } = createFakePluginHost({ pluginId: "app-preview" });
+    await plugin(bb);
+    try {
+      const listed = await harness.behavior.runCli(["ports", "--all", "--json"]);
+      expect(String(listed.stdout)).toContain('"port":18793');
+      const killPromise = harness.behavior.callAgentTool(
+        "preview_ports",
+        { action: "kill", targets: ["18793"] },
+        { threadId: "thr_1" },
+      );
+      const pending = await waitForInteraction(harness);
+      harness.behavior.cancelInteraction(pending.id);
+      const killed = await killPromise;
+      expect(killed).toMatchObject({ isError: true });
+      expect(JSON.stringify(killed)).toMatch(/Cancelled/);
+      const after = await harness.behavior.runCli(["ports", "--all", "--json"]);
+      expect(String(after.stdout)).toContain('"port":18793');
+    } finally {
+      child.kill("SIGKILL");
+      await harness.lifecycle.dispose();
+    }
   });
 });

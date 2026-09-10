@@ -1,5 +1,9 @@
 # App Preview changelog
 
+## 2026-09-10
+
+- Plugin 0.2.9: Start no longer interpolates workspace paths into the shell command. Launch is a working directory plus argv recipe; nested `cd` uses `./` so `CDPATH` cannot redirect it. Scoped package dirs (`packages/@acme/web`) stay startable. Agent `preview_app` cannot pass an arbitrary command. `preview_ports` share/unshare/kill wait for a BB confirmation that echoes a plugin-issued token. README discloses install, script execution, signaling, and Connect.
+
 ## 2026-09-07
 
 - Plugin 0.2.8: Open/share prefer Vite/Next `Local:` (and UI lines) over an earlier API listen URL. On a port change, share the new port before dropping the old connect expose.

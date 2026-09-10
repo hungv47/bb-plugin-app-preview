@@ -1,27 +1,30 @@
 # App Preview progress
 
-Updated: 2026-09-07
+Updated: 2026-09-10
 Owner: Hung
-State: 0.2.8 is live on the public host at v0.2.8
+State: 0.2.9 addresses get-bb/marketplace#194 (shell injection, agent recipes, confirm, disclosure)
 
 ## Resume here
 
 Read `VISION.md`, then this file. Path-install from `forsvn/app-preview/app` and
-`bb plugin reload app-preview` to pick up 0.2.8.
+`bb plugin reload app-preview` to pick up 0.2.9.
 
 ## Current state
 
-Product root is `forsvn/app-preview/`. Public host is `hungv47/bb-plugin-app-preview` at `v0.2.8`.
-Git install of `git:github.com/hungv47/bb-plugin-app-preview@semver:^0.2.0` now resolves `v0.2.8`.
-Public push is done. This BB stays path-installed from the worktree. Do not switch it unless
-Hung asks.
+Product root is `forsvn/app-preview/`. Public host is `hungv47/bb-plugin-app-preview` at `v0.2.8`
+until this 0.2.9 is published. Git install of `git:github.com/hungv47/bb-plugin-app-preview@semver:^0.2.0`
+still resolves `v0.2.8` until the new tag exists.
+
+0.2.9 starts from a launch plan (cwd + argv). The thread terminal command is the detected
+recipe only; environment paths are not interpolated. Agent start cannot pass `command`.
+Share/kill from the agent tool wait for `bb.ui.requestInput` with a confirmation token.
+Marketplace listing get-bb/marketplace#194 needs the new tag plus an overview.
 
 0.2.8 ranks multi-URL ready hints so Open/share prefer Vite/Next `Local:` (and UI lines) over an
 earlier API listen URL. On a port change with an existing connect share, refreshLogs shares the new
 port first and only then forgets/unexposes the old one (keep the old shareUrl if the new share
 fails). `waitForPreview` settles briefly after the first ready hint so a Vite Local line that
-prints a moment later can win; server tests cover settle + share swap. Detection/start/stop/share/ports
-otherwise stay the same.
+prints a moment later can win; server tests cover settle + share swap.
 
 0.2.7 replaces the old auto-open boolean with **Open the in-app browser**: `manual`
 (default) or `agent`. Start/stop/share/ports are unchanged. The
@@ -51,4 +54,4 @@ bb plugin reload app-preview
 
 ## Next action
 
-Marketplace listing get-bb/marketplace#194 only.
+Publish 0.2.9, point get-bb/marketplace#194 at the new tag, add overview, ping Sawyer.

@@ -31,13 +31,13 @@ Add `--json` when the output drives later steps. From outside a thread, pass `--
 
 Optional start flags: `--command "<cmd>"`, `--cwd <dir>` (a detected app directory), `--port <n>`.
 
-The native tool `preview_app` is the worktree actions (`detect`, `start`, `stop`, `restart`, `status`) with optional `command`, `port`, and `relativeCwd`. `preview_ports` lists, shares, or kills listeners (`list` / `share` / `unshare` / `kill`, optional `all`, `targets`, `port`, `force`).
+The native tool `preview_app` is the worktree actions (`detect`, `start`, `stop`, `restart`, `status`) with optional `port` and `relativeCwd`. It starts the detected launch recipe only. `preview_ports` lists, shares, or kills listeners (`list` / `share` / `unshare` / `kill`, optional `all`, `targets`, `port`, `force`). Share, unshare, and kill wait for the user to confirm in BB.
 
 ## Procedure
 
 1. If several apps might exist and you need to pick one, run `preview_app` with `detect`. Otherwise skip detect. `start` detects on its own.
 2. Follow the live open-mode line. In manual mode, start only when the user asked to preview or open the app. In agent mode, start once after you finish UI-visible work on this worktree's app, unless a preview is already running.
-3. When starting, call `preview_app` `start` once. Pass `relativeCwd` if several apps were listed. If detection found nothing, ask before inventing a command, or pass `command`.
+3. When starting, call `preview_app` `start` once. Pass `relativeCwd` if several apps were listed. If detection found nothing, ask the user to start from the Preview panel or CLI instead of inventing a command.
 4. Give the user the `Open:` URL as a markdown link. That URL is a bb connect share when pairing is available, so it works from hung.getbb.app. Do not paste a localhost URL as the thing they should click while they are remote.
 5. In agent mode the in-app browser opens when the server is ready and stop closes it. In manual mode, give them the Open URL and let them use the Preview panel.
 6. Stop the preview when they are done testing, unless they asked to leave it up.
@@ -53,3 +53,4 @@ The native tool `preview_app` is the worktree actions (`detect`, `start`, `stop`
 - Ports listed are on the machine running the BB plugin server, not a remote browser.
 - Connect share forwards to 127.0.0.1. Start/restart through this plugin so Node frameworks bind that address. Do not tell the user to open localhost from hung.getbb.app.
 - Do not share or kill Docker-published ports or system apps through this plugin.
+- `preview_app` cannot pass a custom start command. Share, unshare, and kill from `preview_ports` wait for the user to confirm.

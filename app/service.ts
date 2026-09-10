@@ -5,7 +5,13 @@ import {
   previewUrls,
   type ThreadTabsApi,
 } from "./browser-tabs.js";
-import { detectAll, detectApp, launchCommand, splitCdPrefix, type Detection } from "./detect.js";
+import {
+  detectAll,
+  detectApp,
+  launchCommand,
+  splitCdPrefix,
+  type Detection,
+} from "./detect.js";
 import { PREVIEW_CHANGED, type InspectResult } from "./contract.js";
 import { isSafeRelativeCwd } from "./paths.js";
 import { decodeTerminalChunks, parseReadyHint, tailText } from "./ready.js";
@@ -325,7 +331,7 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
       return { ...(all[0] ?? detectApp([])) };
     }
     if (!isSafeRelativeCwd(relativeCwd)) {
-      throw new Error("App directory must be a relative path without ..");
+      throw new Error("App directory must be a relative path without .. or shell characters.");
     }
     const match = all.find((item) => item.relativeCwd === relativeCwd);
     if (match === undefined) {
@@ -565,7 +571,6 @@ export function createPreviewService(bb: BbPluginApi, settings: ServiceSettings)
         const command = launchCommand(detection, {
           autoInstall: settings.autoInstall,
           commandOverride,
-          workspacePath: workspace.path,
         });
         const startedAt = now();
         const terminal = await bb.sdk.terminals.create({

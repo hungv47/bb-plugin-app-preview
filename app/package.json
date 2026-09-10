@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-app-preview",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "type": "module",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
   },
   "bb": {
     "name": "App Preview",
-    "description": "Detect the app in a thread worktree, launch it, and list, share, or kill listening ports on this machine. A setting chooses whether you open the in-app browser yourself, or agents open it when the app is ready.",
+    "description": "Detect the app in a thread worktree, launch the detected start recipe, and list, share, or kill listening ports on this machine. Start may install dependencies and run repository scripts. Share exposes a port over BB Connect. Kill sends SIGTERM/SIGKILL. A setting chooses whether you open the in-app browser yourself, or agents open it when the app is ready.",
     "branding": {
       "icon": "Play"
     },

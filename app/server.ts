@@ -9,6 +9,7 @@ import {
   isAgentOpenPreview,
   openPreviewAgentInstructions,
 } from "./open-mode.js";
+import { requireUserConfirmation } from "./confirm.js";
 import { createPreviewService, sleep, type InspectResult } from "./service.js";
 import { environmentPreviewBlocker } from "./workspace-error.js";
 
@@ -324,30 +325,31 @@ export default async function plugin(bb: BbPluginApi) {
     description:
       "Detect, start, stop, or inspect the web app in this thread's worktree so the user can try it from the session.",
     instructions:
-      "Use preview_app to run this thread's worktree app. Prefer it over guessing package.json scripts or running bb preview. Start detects. Give the user the Open URL. Follow the live App Preview open-mode line for whether to start.",
+      "Use preview_app to run this thread's worktree app. Prefer it over guessing package.json scripts or running bb preview. Start uses the detected launch recipe only; do not invent a command. Give the user the Open URL. Follow the live App Preview open-mode line for whether to start.",
     presentation: {
       label: {
         pending: "Checking worktree preview",
         completed: "Checked worktree preview",
       },
     },
-    parameters: z.object({
-      action: z.enum(["detect", "start", "stop", "restart", "status"]),
-      command: z.string().min(1).max(500).optional(),
-      port: z.number().int().min(1).max(65535).optional(),
-      relativeCwd: z.string().min(1).max(240).optional(),
-    }),
-    async execute({ action, command, port, relativeCwd }, { threadId }) {
+    parameters: z
+      .object({
+        action: z.enum(["detect", "start", "stop", "restart", "status"]),
+        port: z.number().int().min(1).max(65535).optional(),
+        relativeCwd: z.string().min(1).max(240).optional(),
+      })
+      .strict(),
+    async execute({ action, port, relativeCwd }, { threadId }) {
       if (threadId === undefined || threadId === "") {
         return { content: [{ type: "text", text: "No thread is attached to this tool call." }], isError: true };
       }
       const result =
         action === "start"
-          ? await service.start(threadId, { command, port, relativeCwd })
+          ? await service.start(threadId, { port, relativeCwd })
           : action === "stop"
             ? await service.stop(threadId)
             : action === "restart"
-              ? await service.restart(threadId, { command, port, relativeCwd })
+              ? await service.restart(threadId, { port, relativeCwd })
               : await service.inspect(threadId);
       return {
         content: [{ type: "text", text: formatInspect(result) }],
@@ -359,23 +361,25 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "preview_ports",
     description:
-      "List listening TCP ports on this machine, share one over bb connect, or kill a listener by port or PID. Dev servers are listed by default; pass all to include system apps. Share and kill refuse Docker-published ports and system apps.",
+      "List listening TCP ports on this machine, share one over bb connect, or kill a listener by port or PID. Dev servers are listed by default; pass all to include system apps. Share and kill refuse Docker-published ports and system apps. Share, unshare, and kill wait for the user to confirm in BB.",
     instructions:
-      "Use preview_ports when the user wants to see, share, or free a port. Prefer this over guessing lsof. Share returns a bb connect URL for phone/remote preview. Do not share or kill Docker-published ports or system apps. Kill is destructive: only kill what they asked for. Give them the port, process, PID, and share URL if one exists.",
+      "Use preview_ports when the user wants to see, share, or free a port. Prefer this over guessing lsof. Share returns a bb connect URL for phone/remote preview. Do not share or kill Docker-published ports or system apps. Kill is destructive: only kill what they asked for. Share, unshare, and kill ask the user to confirm in BB before they run. Give them the port, process, PID, and share URL if one exists.",
     presentation: {
       label: {
         pending: "Checking listening ports",
         completed: "Checked listening ports",
       },
     },
-    parameters: z.object({
-      action: z.enum(["list", "kill", "share", "unshare"]),
-      all: z.boolean().optional(),
-      targets: z.array(z.string().min(1).max(32)).max(1000).optional(),
-      port: z.number().int().min(1).max(65535).optional(),
-      force: z.boolean().optional(),
-    }),
-    async execute({ action, all, targets, port, force }) {
+    parameters: z
+      .object({
+        action: z.enum(["list", "kill", "share", "unshare"]),
+        all: z.boolean().optional(),
+        targets: z.array(z.string().min(1).max(32)).max(1000).optional(),
+        port: z.number().int().min(1).max(65535).optional(),
+        force: z.boolean().optional(),
+      })
+      .strict(),
+    async execute({ action, all, targets, port, force }, { threadId, signal }) {
       if (action === "list") {
         const listed = await ports.listPorts(all === true);
         return {
@@ -389,6 +393,10 @@ export default async function plugin(bb: BbPluginApi) {
             content: [{ type: "text", text: `${action} needs a port.` }],
             isError: true,
           };
+        }
+        const denied = await requireUserConfirmation(bb, threadId, action, { port }, signal);
+        if (denied !== null) {
+          return { content: [{ type: "text", text: denied }], isError: true };
         }
         const shared = action === "share" ? await ports.sharePort(port) : await ports.unsharePort(port);
         return {
@@ -408,6 +416,10 @@ export default async function plugin(bb: BbPluginApi) {
           content: [{ type: "text", text: "kill needs targets: a port, PID, or range such as 3000-3010." }],
           isError: true,
         };
+      }
+      const denied = await requireUserConfirmation(bb, threadId, "kill", { targets, force }, signal);
+      if (denied !== null) {
+        return { content: [{ type: "text", text: denied }], isError: true };
       }
       const killed = await ports.killPorts(targets, force === true);
       return {
