@@ -2,6 +2,8 @@
 
 ## 2026-09-10
 
+- Tagged public `v0.2.9`. Marketplace #194 now installs `^0.2.9` and ships
+  `overview/app-preview.md` (install, scripts, signaling, Connect).
 - Plugin 0.2.9: Start no longer interpolates workspace paths into the shell command. Launch is a working directory plus argv recipe; nested `cd` uses `./` so `CDPATH` cannot redirect it. Scoped package dirs (`packages/@acme/web`) stay startable. Agent `preview_app` cannot pass an arbitrary command. `preview_ports` share/unshare/kill wait for a BB confirmation that echoes a plugin-issued token. README discloses install, script execution, signaling, and Connect.
 
 ## 2026-09-07
