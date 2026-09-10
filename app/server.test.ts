@@ -5,6 +5,7 @@ import {
   makeThreadResponse,
 } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.js";
+import { confirmPayloadSchema } from "./confirm-schema.js";
 import { OPEN_PREVIEW_AGENT } from "./open-mode.js";
 
 function environment() {
@@ -1195,12 +1196,8 @@ describe("plugin inspect", () => {
     const sharePending = await waitForInteraction(harness);
     expect(sharePending.rendererId).toBe("preview-confirm");
     expect(sharePending.payload).toMatchObject({ action: "share" });
-    const shareToken =
-      typeof sharePending.payload === "object" &&
-      sharePending.payload !== null &&
-      "confirmationToken" in sharePending.payload
-        ? String(sharePending.payload.confirmationToken)
-        : "";
+    const parsedShare = confirmPayloadSchema.safeParse(sharePending.payload);
+    const shareToken = parsedShare.success ? parsedShare.data.confirmationToken : "";
     harness.behavior.submitInteraction(sharePending.id, { confirmationToken: shareToken });
     const shared = await sharePromise;
     expect(shared).toMatchObject({ isError: true });

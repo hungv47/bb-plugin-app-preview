@@ -1,11 +1,13 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import type { BbPluginApi, JsonValue } from "@get-bb/plugin-sdk";
 import {
   CONFIRM_RENDERER_ID,
   confirmSubmitSchema,
   confirmSummary,
   type ConfirmAction,
 } from "./confirm-schema.js";
+
+export type ConfirmationHost = { ui: Pick<BbPluginApi["ui"], "requestInput"> };
 
 export function createConfirmationToken(): string {
   return randomBytes(24).toString("base64url");
@@ -18,13 +20,13 @@ export function confirmationTokensMatch(issued: string, submitted: string): bool
   return timingSafeEqual(left, right);
 }
 
-export function submittedConfirmationMatches(issued: string, submitted: unknown): boolean {
+export function submittedConfirmationMatches(issued: string, submitted: JsonValue): boolean {
   const parsed = confirmSubmitSchema.safeParse(submitted);
   return parsed.success && confirmationTokensMatch(issued, parsed.data.confirmationToken);
 }
 
 export async function requireUserConfirmation(
-  bb: BbPluginApi,
+  bb: ConfirmationHost,
   threadId: string | undefined,
   action: ConfirmAction,
   details: { port?: number; targets?: readonly string[]; force?: boolean },

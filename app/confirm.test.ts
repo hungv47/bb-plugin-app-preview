@@ -1,23 +1,31 @@
 import { describe, expect, it } from "vitest";
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import type { PluginInteractionRequest, PluginInteractionResult } from "@get-bb/plugin-sdk";
 import {
   createConfirmationToken,
   requireUserConfirmation,
   submittedConfirmationMatches,
+  type ConfirmationHost,
 } from "./confirm.js";
-import { confirmPayloadSchema, confirmSummary } from "./confirm-schema.js";
+import {
+  confirmPayloadSchema,
+  confirmSummary,
+  type ConfirmPayload,
+} from "./confirm-schema.js";
 
 function stubBb(
-  reply: (payload: { confirmationToken: string }) => { outcome: "submitted" | "cancelled"; value?: unknown },
-): BbPluginApi {
+  reply: (payload: ConfirmPayload) => PluginInteractionResult | Promise<PluginInteractionResult>,
+): ConfirmationHost {
   return {
     ui: {
-      requestInput: async (request: { payload: unknown }) => {
-        const payload = request.payload as { confirmationToken: string };
-        return reply(payload);
+      requestInput: async (request: PluginInteractionRequest): Promise<PluginInteractionResult> => {
+        const parsed = confirmPayloadSchema.safeParse(request.payload);
+        if (!parsed.success) {
+          return { outcome: "cancelled", reason: "user" };
+        }
+        return reply(parsed.data);
       },
     },
-  } as unknown as BbPluginApi;
+  };
 }
 
 describe("confirmation tokens", () => {
@@ -66,16 +74,21 @@ describe("confirmation tokens", () => {
     ).toBe("Confirmation token did not match.");
     expect(
       await requireUserConfirmation(
-        stubBb(() => ({ outcome: "cancelled" })),
+        stubBb(() => ({ outcome: "cancelled", reason: "user" })),
         "thr_1",
         "kill",
         { targets: ["3000"] },
       ),
     ).toBe("Cancelled.");
     expect(
-      await requireUserConfirmation(stubBb(() => ({ outcome: "cancelled" })), "", "kill", {
-        targets: ["1"],
-      }),
+      await requireUserConfirmation(
+        stubBb(() => ({ outcome: "cancelled", reason: "user" })),
+        "",
+        "kill",
+        {
+          targets: ["1"],
+        },
+      ),
     ).toBe("Share and kill from an agent need a thread so you can confirm.");
   });
 });
